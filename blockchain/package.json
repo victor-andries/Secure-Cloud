@@ -1,0 +1,13 @@
+{
+  "name": "secure-cloud-blockchain",
+  "version": "1.0.0",
+  "description": "Hardhat blockchain project for secure cloud data management",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "hardhat": "^2.19.0"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.0",
+    "dotenv": "^16.0.0"
+  }
+}

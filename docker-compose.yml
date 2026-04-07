@@ -1,0 +1,179 @@
+version: "3.9"
+
+services:
+  # ─── Infrastructure ──────────────────────────────────────────────────────────
+
+  minio:
+    image: minio/minio:latest
+    container_name: scp-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - scp-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: scp-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - scp-net
+
+  # ─── Backend Services ─────────────────────────────────────────────────────────
+
+  storage:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: scp-storage
+    command: python storage_service.py
+    env_file:
+      - ./backend/.env
+    environment:
+      MINIO_ENDPOINT: minio:9000
+      REDIS_HOST: redis
+    ports:
+      - "5001:5001"
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - scp-net
+
+  blockchain:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: scp-blockchain
+    command: python blockchain_service.py
+    env_file:
+      - ./backend/.env
+    environment:
+      REDIS_HOST: redis
+    ports:
+      - "5002:5002"
+    volumes:
+      - ./backend/abi:/app/abi:ro
+    restart: unless-stopped
+    networks:
+      - scp-net
+
+  ai:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: scp-ai
+    command: python ai_detection_service.py
+    env_file:
+      - ./backend/.env
+    environment:
+      REDIS_HOST: redis
+      MODEL_DIR: /app/models
+    ports:
+      - "5003:5003"
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend/models:/app/models:ro
+    restart: unless-stopped
+    networks:
+      - scp-net
+
+  sandbox:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: scp-sandbox
+    command: python sandbox_service.py
+    env_file:
+      - ./backend/.env
+    environment:
+      SANDBOX_BASE_IMAGE: scp-sandbox-base
+    ports:
+      - "5004:5004"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    networks:
+      - scp-net
+
+  gateway:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: scp-gateway
+    command: python main.py
+    env_file:
+      - ./backend/.env
+    environment:
+      STORAGE_URL: http://storage:5001
+      BLOCKCHAIN_URL: http://blockchain:5002
+      AI_URL: http://ai:5003
+      SANDBOX_URL: http://sandbox:5004
+      REDIS_HOST: redis
+    ports:
+      - "5000:5000"
+    depends_on:
+      - storage
+      - blockchain
+      - ai
+      - sandbox
+    restart: unless-stopped
+    networks:
+      - scp-net
+
+  # ─── Frontend ────────────────────────────────────────────────────────────────
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: scp-frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:5000
+      NEXT_PUBLIC_CHAIN_ID: "80001"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - gateway
+    restart: unless-stopped
+    networks:
+      - scp-net
+
+# ─── Volumes ──────────────────────────────────────────────────────────────────
+
+volumes:
+  minio_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# ─── Networks ─────────────────────────────────────────────────────────────────
+
+networks:
+  scp-net:
+    driver: bridge

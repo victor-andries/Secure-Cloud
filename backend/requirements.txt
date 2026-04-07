@@ -1,0 +1,14 @@
+flask==3.0.3
+flask-cors==4.0.1
+python-dotenv==1.0.1
+web3==6.20.0
+minio==7.2.9
+cryptography==42.0.8
+tensorflow==2.15.1
+keras==2.15.0
+scikit-learn==1.5.1
+numpy==1.26.4
+pandas==2.2.2
+redis==5.0.8
+requests==2.32.3
+docker==7.1.0

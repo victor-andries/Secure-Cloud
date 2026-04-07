@@ -1,0 +1,176 @@
+# Development — full stack with hot reload via volume mounts
+# Usage: docker-compose -f docker-compose.dev.yml up --build
+# After first build, just: docker-compose -f docker-compose.dev.yml up
+
+services:
+  # ─── Infrastructure ──────────────────────────────────────────────────────────
+
+  minio:
+    image: minio/minio:latest
+    container_name: scp-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+    networks:
+      - scp-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: scp-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --save 60 1 --loglevel warning
+    restart: unless-stopped
+    networks:
+      - scp-net
+
+  # ─── Backend Services (hot reload via volume mounts) ─────────────────────────
+
+  storage:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: scp-storage
+    command: python storage_service.py
+    env_file: ./backend/.env
+    environment:
+      MINIO_ENDPOINT: minio:9000
+      REDIS_HOST: redis
+      FLASK_DEBUG: "1"
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./backend:/app          # mount source — Flask reloader picks up changes
+    depends_on:
+      - minio
+      - redis
+    restart: unless-stopped
+    networks:
+      - scp-net
+
+  blockchain:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: scp-blockchain
+    command: python blockchain_service.py
+    env_file: ./backend/.env
+    environment:
+      FLASK_DEBUG: "1"
+    ports:
+      - "5002:5002"
+    volumes:
+      - ./backend:/app
+    restart: unless-stopped
+    networks:
+      - scp-net
+
+  ai:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: scp-ai
+    command: python ai_detection_service.py
+    env_file: ./backend/.env
+    environment:
+      REDIS_HOST: redis
+      MODEL_DIR: /app/models
+      FLASK_DEBUG: "1"
+    ports:
+      - "5003:5003"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - scp-net
+
+  sandbox:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: scp-sandbox
+    command: python sandbox_service.py
+    env_file: ./backend/.env
+    environment:
+      SANDBOX_BASE_IMAGE: scp-sandbox-base
+      FLASK_DEBUG: "1"
+    ports:
+      - "5004:5004"
+    volumes:
+      - ./backend:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    networks:
+      - scp-net
+
+  gateway:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: scp-gateway
+    command: python main.py
+    env_file: ./backend/.env
+    environment:
+      STORAGE_URL: http://storage:5001
+      BLOCKCHAIN_URL: http://blockchain:5002
+      AI_URL: http://ai:5003
+      SANDBOX_URL: http://sandbox:5004
+      REDIS_HOST: redis
+      FLASK_DEBUG: "1"
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - storage
+      - blockchain
+      - ai
+      - sandbox
+    restart: unless-stopped
+    networks:
+      - scp-net
+
+  # ─── Frontend (hot reload via Next.js dev server) ────────────────────────────
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: scp-frontend
+    env_file: ./frontend/.env
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:5000
+      WATCHPACK_POLLING: "true"    # required for file watching inside Docker on Windows
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules          # keep node_modules inside container
+    depends_on:
+      - gateway
+    restart: unless-stopped
+    networks:
+      - scp-net
+
+# ─── Volumes ──────────────────────────────────────────────────────────────────
+
+volumes:
+  minio_data:
+  redis_data:
+
+# ─── Networks ─────────────────────────────────────────────────────────────────
+
+networks:
+  scp-net:
+    driver: bridge
