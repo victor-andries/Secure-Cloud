@@ -22,6 +22,8 @@ app = Flask(__name__)
 CORS(app)
 
 SANDBOX_BASE_IMAGE = os.getenv("SANDBOX_BASE_IMAGE", "scp-sandbox-base")
+SANDBOX_DOS_IMAGE  = os.getenv("SANDBOX_DOS_IMAGE",  "scp-sandbox-dos")
+SANDBOX_WINE_IMAGE = os.getenv("SANDBOX_WINE_IMAGE", "scp-sandbox-wine")
 
 # Max file size eligible for sandboxing (50 MB)
 _MAX_SANDBOX_FILE = 50 * 1024 * 1024
@@ -81,6 +83,8 @@ _MALICIOUS_PATTERNS = [
     (re.compile(r'init_module\(|finit_module\('),      "Kernel module load attempt"),
     # Unix virus infection: writing ELF magic bytes into another file
     (re.compile(r'write\(.*"\\177ELF'),                "Writing ELF header — binary infection"),
+    (re.compile(r'openat?\(.*"/targets/[^"]+",.*O_(?:WRONLY|RDWR)'),
+     "Writing to decoy target file"),
 ]
 
 _SUSPICIOUS_PATTERNS = [
@@ -89,6 +93,10 @@ _SUSPICIOUS_PATTERNS = [
     (re.compile(r'chmod\(.*0[0-9]*[67][0-9]*\)'),     "Making file executable"),
     (re.compile(r'unlink\(|unlinkat\('),               "File deletion"),
     (re.compile(r'bind\('),                            "Socket bind (listener)"),
+    (re.compile(r'openat?\(.*O_(?:WRONLY|RDWR|CREAT).*=\s*-1\s*E(?:PERM|ACCES|ROFS)'),
+     "Blocked file write attempt — possible file infector"),
+    (re.compile(r'write\(.*=\s*-1\s*E(?:PERM|ROFS)'),
+     "Write syscall blocked by read-only filesystem"),
 ]
 
 _FORK_BOMB_THRESHOLD  = 30
@@ -166,14 +174,11 @@ def _analyze_trace(trace_text: str) -> dict:
     }
 
 
-def _run_in_sandbox(file_bytes: bytes, filename: str, runner: list) -> dict:
+def _run_in_elf_sandbox(file_bytes: bytes, filename: str, runner: list) -> dict:
     """
-    Inject file into an ephemeral Docker container via put_archive (no bind mount),
-    run it under strace, and return the analysis result.
-
-    Using put_archive instead of bind mounts avoids the Docker-in-Docker path
-    resolution problem where the sandbox service runs inside a container and
-    the host Docker daemon cannot resolve paths inside that container.
+    Run ELF binary or script in isolated sandbox.
+    Uses decoy ELF files in /targets/ (writable tmpfs) to detect file infectors:
+    hashes are captured before and after execution; any change = MALICIOUS.
     """
     import docker
     import docker.errors
@@ -184,65 +189,79 @@ def _run_in_sandbox(file_bytes: bytes, filename: str, runner: list) -> dict:
     try:
         client = docker.from_env()
 
-        # strace writes to stdout via /proc/self/fd/1 — no output file needed,
-        # so we avoid any filesystem write issues inside the container.
-        command = (
-            ["strace", "-f",
-             "-e", "trace=network,file,process,signal",
-             "-o", "/proc/self/fd/1",
-             "timeout", "20"]
-            + runner
-            + ["/malware/target"]
-        )
-
-        # Create container but do NOT start it yet
         container = client.containers.create(
             image=SANDBOX_BASE_IMAGE,
-            command=command,
+            command=["sleep", "30"],
             network_mode="none",
             read_only=True,
             mem_limit="256m",
-            nano_cpus=500_000_000,   # 0.5 CPU
+            nano_cpus=500_000_000,
             pids_limit=50,
             cap_drop=["ALL"],
             cap_add=["SYS_PTRACE"],
             security_opt=["no-new-privileges"],
-            tmpfs={"/tmp": "size=50m,noexec,nosuid"},
+            tmpfs={
+                "/tmp":     "size=50m,noexec,nosuid",
+                "/targets": "size=10m",   # writable + exec for decoy ELFs
+            },
         )
+        container.start()
 
-        # Inject the file via Docker API (works regardless of where this service runs)
+        # Copy decoys from image's /decoys/ (read-only) into /targets/ (writable tmpfs)
+        container.exec_run(["sh", "-c", "cp /decoys/* /targets/"], demux=False)
+
+        # Capture baseline hashes of all decoy files
+        _, baseline_raw = container.exec_run(
+            ["sh", "-c", "sha256sum /targets/*"], demux=False
+        )
+        baseline_hashes = baseline_raw.decode("utf-8", errors="replace") if baseline_raw else ""
+
+        # Inject malware via Docker API (bypasses read_only for the overlay write)
         tar_buf = io.BytesIO()
         with tarfile.open(fileobj=tar_buf, mode="w") as tar:
             info      = tarfile.TarInfo(name="target")
             info.size = len(file_bytes)
-            info.mode = 0o755   # must be executable
+            info.mode = 0o755
             tar.addfile(info, io.BytesIO(file_bytes))
         tar_buf.seek(0)
         container.put_archive("/malware", tar_buf)
 
-        # Start and wait (up to 25 s wall-clock)
-        container.start()
-        try:
-            container.wait(timeout=25)
-        except Exception:
-            logger.warning(f"Container timeout for '{filename}' — collecting partial trace")
-
-        runtime_ms = int((time.time() - start_ms) * 1000)
-
-        # Collect strace output written to container stdout
-        trace_text = container.logs(stdout=True, stderr=False).decode("utf-8", errors="replace")
+        # Build strace command string (runner is [] for ELF, ["python3"] for .py, etc.)
+        runner_str = " ".join(runner) + " " if runner else ""
+        strace_cmd = (
+            f"strace -f -e trace=network,file,process,signal "
+            f"-o /proc/self/fd/1 timeout 20 {runner_str}/malware/target 2>/dev/null"
+        )
+        _, strace_raw = container.exec_run(["sh", "-c", strace_cmd], demux=False)
+        trace_text = strace_raw.decode("utf-8", errors="replace") if strace_raw else ""
 
         if not trace_text.strip():
-            logger.warning(f"Empty strace output for '{filename}' — binary may have crashed immediately")
+            logger.warning(f"Empty strace output for '{filename}'")
 
         logger.debug(f"Trace sample for '{filename}': {trace_text[:500]}")
 
+        # Re-hash decoys; any change means the malware modified them (file infector)
+        _, current_raw = container.exec_run(
+            ["sh", "-c", "sha256sum /targets/*"], demux=False
+        )
+        current_hashes = current_raw.decode("utf-8", errors="replace") if current_raw else ""
+        decoy_modified = bool(
+            baseline_hashes and current_hashes and baseline_hashes != current_hashes
+        )
+
         result = _analyze_trace(trace_text)
-        result["runtime_ms"] = runtime_ms
+        result["runtime_ms"] = int((time.time() - start_ms) * 1000)
+
+        if decoy_modified:
+            result["verdict"]       = "MALICIOUS"
+            result["sandbox_score"] = 0.95
+            result["behaviors"].insert(0, "File infector: decoy ELF files were modified after execution")
+            logger.warning(f"File infector confirmed for '{filename}': decoy hashes changed")
+
         return result
 
     except Exception as exc:
-        logger.error(f"Sandbox execution error for '{filename}': {exc}", exc_info=True)
+        logger.error(f"ELF sandbox error for '{filename}': {exc}", exc_info=True)
         return {
             "verdict":        "ERROR",
             "sandbox_score":  0.0,
@@ -293,7 +312,7 @@ def analyze() -> tuple:
         runner_label = runner[0] if runner else "direct ELF"
         logger.info(f"Sandboxing '{filename}' (runner={runner_label}, size={len(file_bytes)} bytes)")
 
-        result = _run_in_sandbox(file_bytes, filename, runner)
+        result = _run_in_elf_sandbox(file_bytes, filename, runner)
         result["filename"] = filename
 
         logger.info(
