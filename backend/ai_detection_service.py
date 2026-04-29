@@ -191,6 +191,48 @@ _MEDIUM_RISK_RE = [
 
 _PE_EXTENSIONS = {"exe", "dll", "sys", "scr", "com"}
 
+
+def _analyze_com_file(data: bytes, filename: str) -> float:
+    """Heuristic scoring for DOS COM file infectors."""
+    if not filename.lower().endswith('.com'):
+        return 0.0
+    if len(data) < 1:
+        return 0.0
+    if data[:2] == b'MZ':  # 32-bit PE disguised with .com extension — handled by PE path
+        return 0.0
+    if data[0] not in (0xEB, 0xE9):  # must start with a jump to be a valid DOS COM
+        return 0.0
+
+    score = 0.20  # baseline: valid DOS COM executable
+
+    infector_score = 0.0
+    specific_indicators = 0  # count of infector-specific indicators (excludes generic INT 21h)
+
+    if b'\xCD\x21' in data:
+        infector_score += 0.25  # INT 21h — the only way a COM file does I/O
+
+    idx = data.find(b'\xCD\x21')
+    if idx != -1:
+        window = data[max(0, idx - 10): idx + 10]
+        if b'\x4E' in window or b'\x4F' in window:  # FindFirst / FindNext
+            infector_score += 0.25
+            specific_indicators += 1
+
+    if b'*.com' in data or b'*.COM' in data or b'*.exe' in data or b'*.EXE' in data:
+        infector_score += 0.25
+        specific_indicators += 1
+
+    if b'\xB4\x3C' in data or b'\xB4\x3D' in data:  # create / open file via INT 21h
+        infector_score += 0.25
+        specific_indicators += 1
+
+    if len(data) < 2048 and specific_indicators > 0:
+        infector_score += 0.25  # COM infectors are characteristically tiny (only when infector-specific indicators present)
+
+    score += min(infector_score, 0.70)
+    return min(score, 0.90)
+
+
 # Document/media formats that are inherently compressed — high entropy is normal,
 # so entropy scoring is suppressed. Pattern scanning still runs on their bytes.
 _DOCUMENT_FORMATS = {
@@ -398,6 +440,16 @@ def analyze_file_content(file_bytes: bytes, filename: str) -> dict:
             elif entropy > 7.2:
                 score += 0.15   # Compressed or encrypted content
                 result["is_high_entropy"] = True
+
+        # --- DOS COM file analysis ---
+        com_score = _analyze_com_file(file_bytes, filename)
+        if com_score > 0.0:
+            score += com_score
+            if com_score >= 0.50:
+                result["threat_type"] = result["threat_type"] or "DOS_COM_INFECTOR"
+                logger.warning(
+                    f"DOS COM infector indicators in '{filename}': score={com_score:.2f}"
+                )
 
         # --- PE file analysis ---
         if ext in _PE_EXTENSIONS:
