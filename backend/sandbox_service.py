@@ -105,15 +105,6 @@ _EXEC_CHAIN_THRESHOLD = 8
 _WRITE_ATTEMPT_THRESHOLD = 3
 
 
-def _get_runner(filename: str, file_bytes: bytes):
-    """Return the command prefix to run the file, or None if not executable."""
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    if ext in _RUNNERS:
-        return _RUNNERS[ext]
-    if file_bytes[:4] == b"\x7fELF":
-        return []
-    return None
-
 
 def _analyze_trace(trace_text: str) -> dict:
     """Parse strace output and return verdict, score, behaviors, syscall counts."""
@@ -535,16 +526,37 @@ def analyze() -> tuple:
             return jsonify({"verdict": "SKIPPED", "sandbox_score": 0.0,
                             "behaviors": [], "reason": "File too large for sandbox"}), 200
 
-        runner = _get_runner(filename, file_bytes)
-        if runner is None:
+        platform = _detect_platform(file_bytes, filename)
+        logger.info(f"Sandboxing '{filename}' (platform={platform}, size={len(file_bytes)} bytes)")
+
+        if platform == "unknown":
             return jsonify({"verdict": "SKIPPED", "sandbox_score": 0.0,
                             "behaviors": [], "reason": "File type not executable"}), 200
 
-        runner_label = runner[0] if runner else "direct ELF"
-        logger.info(f"Sandboxing '{filename}' (runner={runner_label}, size={len(file_bytes)} bytes)")
+        if platform == "macos":
+            return jsonify({
+                "verdict":          "SKIPPED",
+                "sandbox_score":    0.0,
+                "behaviors":        [],
+                "reason":           "macOS dynamic analysis not available in this environment",
+                "platform":         "macos",
+                "dynamic_analysis": "not_available",
+            }), 200
 
-        result = _run_in_elf_sandbox(file_bytes, filename, runner)
+        if platform in ("elf", "script"):
+            ext    = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
+            runner = _RUNNERS.get(ext, [])
+            result = _run_in_elf_sandbox(file_bytes, filename, runner)
+        elif platform == "dos":
+            result = _run_in_dos_sandbox(file_bytes, filename)
+        elif platform == "windows":
+            result = _run_in_wine_sandbox(file_bytes, filename)
+        else:
+            return jsonify({"verdict": "SKIPPED", "sandbox_score": 0.0,
+                            "behaviors": [], "reason": f"Unhandled platform: {platform}"}), 200
+
         result["filename"] = filename
+        result["platform"] = platform
 
         logger.info(
             f"Sandbox result for '{filename}': verdict={result['verdict']} "
@@ -560,30 +572,35 @@ def analyze() -> tuple:
 
 @app.route("/health", methods=["GET"])
 def health() -> tuple:
-    """Health check — verify Docker daemon is reachable and base image exists."""
-    docker_ok  = False
-    image_ok   = False
-    extra: dict = {}
+    """Health check — verify Docker daemon is reachable and all sandbox images exist."""
+    docker_ok = False
+    images: dict = {}
+    extra: dict  = {}
 
     try:
         import docker
         client = docker.from_env()
         client.ping()
         docker_ok = True
-        try:
-            client.images.get(SANDBOX_BASE_IMAGE)
-            image_ok = True
-        except docker.errors.ImageNotFound:
-            image_ok = False
+        for name, tag in [
+            ("base",  SANDBOX_BASE_IMAGE),
+            ("dos",   SANDBOX_DOS_IMAGE),
+            ("wine",  SANDBOX_WINE_IMAGE),
+        ]:
+            try:
+                client.images.get(tag)
+                images[name] = "ready"
+            except docker.errors.ImageNotFound:
+                images[name] = "missing"
     except Exception as exc:
         extra["error"] = str(exc)
 
+    all_ready = docker_ok and all(v == "ready" for v in images.values())
     return jsonify({
-        "status":      "ok" if docker_ok else "degraded",
-        "service":     "sandbox",
-        "docker_ok":   docker_ok,
-        "base_image":  SANDBOX_BASE_IMAGE,
-        "image_ready": image_ok,
+        "status":    "ok" if all_ready else "degraded",
+        "service":  "sandbox",
+        "docker_ok": docker_ok,
+        "images":   images,
         **extra,
     }), 200 if docker_ok else 503
 

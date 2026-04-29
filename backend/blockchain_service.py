@@ -4,6 +4,7 @@ load_dotenv()
 import os
 import json
 import logging
+import threading
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from web3 import Web3
@@ -25,7 +26,10 @@ ABI_PATH = os.path.join(os.path.dirname(__file__), "abi", "SecureDataManagement.
 w3 = Web3(Web3.HTTPProvider(SEPOLIA_RPC_URL))
 
 contract = None
-account = None
+account  = None
+
+_nonce_lock:  threading.Lock = threading.Lock()
+_local_nonce: int | None     = None
 
 
 def load_contract() -> None:
@@ -56,19 +60,41 @@ def load_contract() -> None:
 
 
 def send_transaction(fn_call) -> str:
-    """Build, sign, and send a transaction. Returns tx hash."""
+    """
+    Build, sign, and send a transaction. Returns tx hash.
+    Uses a threading lock + local nonce counter so concurrent requests
+    never read the same nonce from the network, preventing 'nonce too low' errors.
+    """
+    global _local_nonce
+
     if not account:
         raise RuntimeError("No account configured")
-    nonce = w3.eth.get_transaction_count(account.address)
-    gas_estimate = fn_call.estimate_gas({"from": account.address})
-    tx = fn_call.build_transaction({
-        "from": account.address,
-        "nonce": nonce,
-        "gas": int(gas_estimate * 1.2),
-        "gasPrice": w3.eth.gas_price
-    })
-    signed = account.sign_transaction(tx)
-    tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
+
+    with _nonce_lock:
+        # Refresh from network if first call or local nonce has fallen behind
+        network_nonce = w3.eth.get_transaction_count(account.address, "pending")
+        if _local_nonce is None or network_nonce > _local_nonce:
+            _local_nonce = network_nonce
+
+        nonce        = _local_nonce
+        _local_nonce += 1   # reserve this nonce before releasing the lock
+
+        try:
+            gas_estimate = fn_call.estimate_gas({"from": account.address})
+            tx = fn_call.build_transaction({
+                "from":     account.address,
+                "nonce":    nonce,
+                "gas":      int(gas_estimate * 1.2),
+                "gasPrice": w3.eth.gas_price,
+            })
+            signed  = account.sign_transaction(tx)
+            tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
+        except Exception:
+            _local_nonce = None   # force re-fetch on next call after any error
+            raise
+
+    # Wait for receipt outside the lock — mining takes ~12 s and must not
+    # block other transactions from being submitted in the meantime.
     receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
     if receipt.status != 1:
         raise RuntimeError(f"Transaction failed: {tx_hash.hex()}")

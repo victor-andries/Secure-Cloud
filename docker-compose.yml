@@ -113,6 +113,8 @@ services:
       - ./backend/.env
     environment:
       SANDBOX_BASE_IMAGE: scp-sandbox-base
+      SANDBOX_DOS_IMAGE: scp-sandbox-dos
+      SANDBOX_WINE_IMAGE: scp-sandbox-wine
     ports:
       - "5004:5004"
     volumes:
@@ -163,6 +165,24 @@ services:
     restart: unless-stopped
     networks:
       - scp-net
+
+  sandbox-dos-builder:
+    build:
+      context: ./backend/sandbox_dos
+      dockerfile: Dockerfile
+    image: scp-sandbox-dos
+    entrypoint: ["echo", "scp-sandbox-dos image built"]
+    profiles:
+      - build
+
+  sandbox-wine-builder:
+    build:
+      context: ./backend/sandbox_wine
+      dockerfile: Dockerfile
+    image: scp-sandbox-wine
+    entrypoint: ["echo", "scp-sandbox-wine image built"]
+    profiles:
+      - build
 
 # ─── Volumes ──────────────────────────────────────────────────────────────────
 
