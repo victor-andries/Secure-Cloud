@@ -278,6 +278,135 @@ def _run_in_elf_sandbox(file_bytes: bytes, filename: str, runner: list) -> dict:
                 pass
 
 
+def _run_in_dos_sandbox(file_bytes: bytes, filename: str) -> dict:
+    """
+    Run DOS COM file in DOSBox sandbox.
+    Decoy COM files (2 bytes each) are placed alongside the target.
+    Any size increase in a decoy = file infector confirmed.
+    Any new .com files = dropper behavior.
+    """
+    import docker
+    import docker.errors
+
+    start_ms  = time.time()
+    container = None
+
+    try:
+        client = docker.from_env()
+
+        container = client.containers.create(
+            image=SANDBOX_DOS_IMAGE,
+            command=["sleep", "30"],
+            network_mode="none",
+            read_only=False,   # DOSBox writes its own state files
+            mem_limit="256m",
+            nano_cpus=500_000_000,
+            pids_limit=50,
+            cap_drop=["ALL"],
+            security_opt=["no-new-privileges"],
+            tmpfs={"/tmp": "size=50m,noexec,nosuid"},
+        )
+        container.start()
+
+        # Copy decoys from /dosbox/c/decoys/ into target_dir so infector finds them
+        container.exec_run(
+            ["sh", "-c", "cp /dosbox/c/decoys/*.com /dosbox/c/target_dir/"],
+            demux=False
+        )
+
+        # Inject the COM target file
+        tar_buf = io.BytesIO()
+        with tarfile.open(fileobj=tar_buf, mode="w") as tar:
+            info      = tarfile.TarInfo(name="target.com")
+            info.size = len(file_bytes)
+            info.mode = 0o755
+            tar.addfile(info, io.BytesIO(file_bytes))
+        tar_buf.seek(0)
+        container.put_archive("/dosbox/c/target_dir", tar_buf)
+
+        # Run DOSBox headlessly (SDL_VIDEODRIVER=dummy suppresses the window)
+        container.exec_run(
+            ["sh", "-c",
+             "SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy "
+             "timeout 15 dosbox -conf /dosbox/dosbox.conf -exit 2>/dev/null || true"],
+            demux=False
+        )
+
+        behaviors = []
+        verdict   = "CLEAN"
+        score     = 0.0
+
+        # Check for new .com files (dropper/replication): initial count = 5 decoys + 1 target
+        _, ls_raw = container.exec_run(
+            ["sh", "-c", "ls /dosbox/c/target_dir/*.com 2>/dev/null | wc -l"],
+            demux=False
+        )
+        try:
+            file_count = int((ls_raw or b'0').decode().strip())
+        except ValueError:
+            file_count = 0
+
+        if file_count > 6:  # 5 decoys + 1 target.com = 6
+            new_files = file_count - 6
+            behaviors.append(f"COM dropper: {new_files} new file(s) created in target directory")
+            verdict = "SUSPICIOUS"
+            score   = 0.75
+
+        # Check decoy file sizes: each decoy is exactly 2 bytes (0xCD 0x20)
+        # Any size > 2 means the COM infector appended/prepended its code
+        _, sizes_raw = container.exec_run(
+            ["sh", "-c",
+             "wc -c /dosbox/c/target_dir/decoy_*.com 2>/dev/null"],
+            demux=False
+        )
+        sizes_text = (sizes_raw or b'').decode()
+        for line in sizes_text.splitlines():
+            parts = line.strip().split()
+            if len(parts) == 2:
+                try:
+                    size = int(parts[0])
+                    path = parts[1]
+                    if size > 2:
+                        behaviors.append(
+                            f"File infector: {os.path.basename(path)} modified "
+                            f"({size} bytes, was 2)"
+                        )
+                        verdict = "MALICIOUS"
+                        score   = 0.95
+                except ValueError:
+                    pass
+
+        runtime_ms = int((time.time() - start_ms) * 1000)
+        logger.info(
+            f"DOS sandbox result for '{filename}': verdict={verdict} "
+            f"score={score} behaviors={behaviors}"
+        )
+        return {
+            "verdict":        verdict,
+            "sandbox_score":  score,
+            "behaviors":      behaviors,
+            "syscall_counts": {},
+            "runtime_ms":     runtime_ms,
+        }
+
+    except Exception as exc:
+        logger.error(f"DOS sandbox error for '{filename}': {exc}", exc_info=True)
+        return {
+            "verdict":        "ERROR",
+            "sandbox_score":  0.0,
+            "behaviors":      [],
+            "syscall_counts": {},
+            "runtime_ms":     int((time.time() - start_ms) * 1000),
+            "error":          str(exc),
+        }
+    finally:
+        if container:
+            try:
+                container.remove(force=True)
+            except Exception:
+                pass
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
