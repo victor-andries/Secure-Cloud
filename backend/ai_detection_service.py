@@ -4,6 +4,7 @@ load_dotenv()
 import os
 import re
 import json
+import struct
 import time
 import logging
 import numpy as np
@@ -257,6 +258,62 @@ def _analyze_pe_imports(data: bytes) -> float:
     return min(score, 0.90)
 
 
+_MACHO_MAGICS = {
+    0xFEEDFACE: "macho32",
+    0xCEFAEDFE: "macho32",
+    0xFEEDFACF: "macho64",
+    0xCFFAEDFE: "macho64",
+    0xCAFEBABE: "fat",
+}
+
+_MACHO_DANGEROUS_STRINGS = [
+    (b'/Library/LaunchAgents/',                0.20),
+    (b'/Library/LaunchDaemons/',               0.20),
+    (b'osascript',                              0.20),
+    (b'applescript',                            0.20),
+    (b'.kext',                                  0.20),
+    (b'IOKit',                                  0.20),
+    (b'task_for_pid',                           0.20),
+    (b'/var/db/dslocal/nodes/Default/users/',   0.20),
+]
+
+
+def _analyze_macho(data: bytes) -> dict:
+    """
+    Static analysis of Mach-O binaries.
+    Returns {"score": float, "platform": str, "threat_type": str|None}
+    """
+    if len(data) < 4:
+        return {"score": 0.0, "platform": "", "threat_type": None}
+
+    try:
+        magic = struct.unpack('>I', data[:4])[0]
+    except struct.error:
+        return {"score": 0.0, "platform": "", "threat_type": None}
+
+    if magic not in _MACHO_MAGICS:
+        return {"score": 0.0, "platform": "", "threat_type": None}
+
+    platform = _MACHO_MAGICS[magic]
+    score = 0.15
+    threat_type = "MACHO_EXECUTABLE"
+
+    if b'@rpath' in data or b'@executable_path' in data or b'@loader_path' in data:
+        score += 0.25
+        threat_type = "MACHO_DYLIB_HIJACKING"
+
+    string_score = sum(w for pat, w in _MACHO_DANGEROUS_STRINGS if pat in data)
+    score += min(string_score, 0.60)
+    if string_score > 0:
+        threat_type = "MACHO_SUSPICIOUS"
+
+    return {
+        "score": round(min(score, 0.90), 4),
+        "platform": platform,
+        "threat_type": threat_type,
+    }
+
+
 # Document/media formats that are inherently compressed — high entropy is normal,
 # so entropy scoring is suppressed. Pattern scanning still runs on their bytes.
 _DOCUMENT_FORMATS = {
@@ -267,7 +324,7 @@ _DOCUMENT_FORMATS = {
 }
 
 # Archive formats — contents must be inspected, not scanned as raw bytes.
-_ARCHIVE_EXTENSIONS = {"zip", "tar", "gz", "bz2", "xz", "7z", "rar"}
+_ARCHIVE_EXTENSIONS = {"zip", "tar", "gz", "bz2", "xz", "7z", "rar", "dmg", "pkg"}
 
 # Extensions considered dangerous when found *inside* an archive.
 _DANGEROUS_IN_ARCHIVE = {
@@ -492,6 +549,17 @@ def analyze_file_content(file_bytes: bytes, filename: str) -> dict:
                     logger.warning(
                         f"Dangerous PE imports in '{filename}': score +{import_score:.2f}"
                     )
+
+        # --- Mach-O file analysis ---
+        macho_result = _analyze_macho(file_bytes)
+        if macho_result["score"] > 0.0:
+            score += macho_result["score"]
+            result["threat_type"] = result["threat_type"] or macho_result["threat_type"]
+            result["platform"] = macho_result["platform"]
+            logger.warning(
+                f"Mach-O binary '{filename}': platform={macho_result['platform']} "
+                f"score={macho_result['score']:.2f} type={macho_result['threat_type']}"
+            )
 
         # --- Malicious pattern scan (all non-archive, text-decodable files) ---
         # Runs regardless of extension — macro viruses appear in .txt, .html, .rtf, etc.

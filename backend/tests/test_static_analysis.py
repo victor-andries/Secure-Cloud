@@ -108,3 +108,66 @@ def test_analyze_file_content_pe_imports_sets_threat_type():
         result = analyze_file_content(data, "malware.exe")
     assert result["threat_type"] in ("MALICIOUS_PE_IMPORTS", "PACKED_PE")
     assert result["content_risk_score"] > 0.0
+
+
+import struct as _struct
+
+with mock.patch('redis.Redis'):
+    from ai_detection_service import _analyze_macho
+
+
+def _make_macho(magic_int: int) -> bytes:
+    return _struct.pack('>I', magic_int) + b'\x00' * 200
+
+
+def test_macho_64bit_detected():
+    data = _make_macho(0xFEEDFACF)
+    result = _analyze_macho(data)
+    assert result["score"] >= 0.15
+    assert result["platform"] == "macho64"
+
+
+def test_macho_32bit_detected():
+    data = _make_macho(0xFEEDFACE)
+    result = _analyze_macho(data)
+    assert result["score"] >= 0.15
+    assert result["platform"] == "macho32"
+
+
+def test_macho_fat_detected():
+    data = _make_macho(0xCAFEBABE)
+    result = _analyze_macho(data)
+    assert result["score"] >= 0.15
+    assert result["platform"] == "fat"
+
+
+def test_macho_little_endian_detected():
+    # 0xCFFAEDFE is little-endian 0xFEEDFACF
+    data = _struct.pack('<I', 0xFEEDFACF) + b'\x00' * 200
+    result = _analyze_macho(data)
+    assert result["score"] >= 0.15
+
+
+def test_macho_launchagent_persistence():
+    data = _make_macho(0xFEEDFACF) + b'/Library/LaunchAgents/evil.plist\x00'
+    result = _analyze_macho(data)
+    assert result["score"] >= 0.35
+
+
+def test_macho_task_for_pid():
+    data = _make_macho(0xFEEDFACF) + b'task_for_pid\x00'
+    result = _analyze_macho(data)
+    assert result["score"] >= 0.35
+
+
+def test_macho_dylib_hijacking():
+    data = _make_macho(0xFEEDFACF) + b'@rpath/evil.dylib\x00'
+    result = _analyze_macho(data)
+    assert result["score"] >= 0.40
+
+
+def test_not_macho():
+    data = b'\x7fELF' + b'\x00' * 200
+    result = _analyze_macho(data)
+    assert result["score"] == 0.0
+    assert result["platform"] == ""
