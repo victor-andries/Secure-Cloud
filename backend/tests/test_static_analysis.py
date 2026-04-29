@@ -81,7 +81,7 @@ def test_pe_persistence():
 
 
 def test_pe_ransomware():
-    data = b'CryptEncrypt\x00FindFirstFileW\x00FindNextFileW\x00'
+    data = b'CryptEncrypt\x00FindFirstFileW\x00'
     score = _analyze_pe_imports(data)
     assert score >= 0.30, f"Ransomware pattern must score >= 0.30, got {score}"
 
@@ -96,3 +96,15 @@ def test_pe_benign():
     data = b'CreateWindowEx\x00MessageBox\x00GetLastError\x00'
     score = _analyze_pe_imports(data)
     assert score == 0.0, f"Benign imports must score 0.0, got {score}"
+
+
+def test_analyze_file_content_pe_imports_sets_threat_type():
+    # Minimal MZ-headed PE data with injection triad import names
+    data = (
+        b'MZ' + b'\x00' * 60
+        + b'CreateRemoteThread\x00VirtualAllocEx\x00WriteProcessMemory\x00'
+    )
+    with mock.patch('redis.Redis'):
+        result = analyze_file_content(data, "malware.exe")
+    assert result["threat_type"] in ("MALICIOUS_PE_IMPORTS", "PACKED_PE")
+    assert result["content_risk_score"] > 0.0
