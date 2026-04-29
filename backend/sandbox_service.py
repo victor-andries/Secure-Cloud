@@ -407,6 +407,108 @@ def _run_in_dos_sandbox(file_bytes: bytes, filename: str) -> dict:
                 pass
 
 
+def _run_in_wine_sandbox(file_bytes: bytes, filename: str) -> dict:
+    """
+    Run Windows PE file under Wine with strace monitoring.
+    strace captures Linux syscalls Wine makes on behalf of the Windows process.
+    Decoy PE files in /targets/ are integrity-checked after execution.
+    """
+    import docker
+    import docker.errors
+
+    start_ms  = time.time()
+    container = None
+
+    try:
+        client = docker.from_env()
+
+        container = client.containers.create(
+            image=SANDBOX_WINE_IMAGE,
+            command=["sleep", "60"],   # Wine needs more startup time
+            network_mode="none",
+            read_only=True,
+            mem_limit="256m",
+            nano_cpus=500_000_000,
+            pids_limit=100,            # Wine spawns several helper processes
+            cap_drop=["ALL"],
+            cap_add=["SYS_PTRACE"],
+            security_opt=["no-new-privileges"],
+            tmpfs={
+                "/tmp":     "size=50m,noexec,nosuid",
+                "/targets": "size=20m",
+                "/wine":    "size=100m",   # Wine prefix must be writable
+            },
+        )
+        container.start()
+
+        # Copy decoys into /targets/ (writable tmpfs)
+        container.exec_run(["sh", "-c", "cp /decoys/*.exe /targets/"], demux=False)
+
+        # Baseline decoy hashes
+        _, baseline_raw = container.exec_run(
+            ["sh", "-c", "sha256sum /targets/*.exe"], demux=False
+        )
+        baseline_hashes = (baseline_raw or b'').decode("utf-8", errors="replace")
+
+        # Inject PE target
+        tar_buf = io.BytesIO()
+        with tarfile.open(fileobj=tar_buf, mode="w") as tar:
+            info      = tarfile.TarInfo(name="target.exe")
+            info.size = len(file_bytes)
+            info.mode = 0o755
+            tar.addfile(info, io.BytesIO(file_bytes))
+        tar_buf.seek(0)
+        container.put_archive("/malware", tar_buf)
+
+        # Run wine under strace — captures Linux syscalls Wine makes for the PE
+        strace_cmd = (
+            "WINEPREFIX=/wine WINEDEBUG=-all "
+            "strace -f -e trace=network,file,process,signal "
+            "-o /proc/self/fd/1 timeout 30 wine /malware/target.exe 2>/dev/null"
+        )
+        _, strace_raw = container.exec_run(["sh", "-c", strace_cmd], demux=False)
+        trace_text = (strace_raw or b'').decode("utf-8", errors="replace")
+
+        logger.debug(f"Wine strace sample for '{filename}': {trace_text[:500]}")
+
+        # Post-execution decoy integrity check
+        _, current_raw = container.exec_run(
+            ["sh", "-c", "sha256sum /targets/*.exe"], demux=False
+        )
+        current_hashes = (current_raw or b'').decode("utf-8", errors="replace")
+        decoy_modified = bool(
+            baseline_hashes and current_hashes and baseline_hashes != current_hashes
+        )
+
+        result = _analyze_trace(trace_text)
+        result["runtime_ms"] = int((time.time() - start_ms) * 1000)
+
+        if decoy_modified:
+            result["verdict"]       = "MALICIOUS"
+            result["sandbox_score"] = 0.95
+            result["behaviors"].insert(0, "PE file infector: decoy EXE files were modified")
+            logger.warning(f"PE file infector confirmed for '{filename}'")
+
+        return result
+
+    except Exception as exc:
+        logger.error(f"Wine sandbox error for '{filename}': {exc}", exc_info=True)
+        return {
+            "verdict":        "ERROR",
+            "sandbox_score":  0.0,
+            "behaviors":      [],
+            "syscall_counts": {},
+            "runtime_ms":     int((time.time() - start_ms) * 1000),
+            "error":          str(exc),
+        }
+    finally:
+        if container:
+            try:
+                container.remove(force=True)
+            except Exception:
+                pass
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
