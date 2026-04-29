@@ -83,8 +83,6 @@ _MALICIOUS_PATTERNS = [
     (re.compile(r'init_module\(|finit_module\('),      "Kernel module load attempt"),
     # Unix virus infection: writing ELF magic bytes into another file
     (re.compile(r'write\(.*"\\177ELF'),                "Writing ELF header — binary infection"),
-    (re.compile(r'openat?\(.*"/targets/[^"]+",.*O_(?:WRONLY|RDWR)'),
-     "Writing to decoy target file"),
 ]
 
 _SUSPICIOUS_PATTERNS = [
@@ -93,6 +91,8 @@ _SUSPICIOUS_PATTERNS = [
     (re.compile(r'chmod\(.*0[0-9]*[67][0-9]*\)'),     "Making file executable"),
     (re.compile(r'unlink\(|unlinkat\('),               "File deletion"),
     (re.compile(r'bind\('),                            "Socket bind (listener)"),
+    (re.compile(r'openat?\(.*"/targets/[^"]+",.*O_(?:WRONLY|RDWR)'),
+     "Attempted write to decoy target file — possible file infector"),
     (re.compile(r'openat?\(.*O_(?:WRONLY|RDWR|CREAT).*=\s*-1\s*E(?:PERM|ACCES|ROFS)'),
      "Blocked file write attempt — possible file infector"),
     (re.compile(r'write\(.*=\s*-1\s*E(?:PERM|ROFS)'),
@@ -217,10 +217,12 @@ def _run_in_elf_sandbox(file_bytes: bytes, filename: str, runner: list) -> dict:
         container.put_archive("/malware", tar_buf)
 
         # Build strace command string (runner is [] for ELF, ["python3"] for .py, etc.)
+        # Write to /tmp/trace.log (writable tmpfs) to avoid mixing malware stdout with strace
         runner_str = " ".join(runner) + " " if runner else ""
         strace_cmd = (
             f"strace -f -e trace=network,file,process,signal "
-            f"-o /proc/self/fd/1 timeout 20 {runner_str}/malware/target 2>/dev/null"
+            f"-o /tmp/trace.log timeout 20 {runner_str}/malware/target 2>/dev/null; "
+            f"cat /tmp/trace.log"
         )
         _, strace_raw = container.exec_run(["sh", "-c", strace_cmd], demux=False)
         trace_text = strace_raw.decode("utf-8", errors="replace") if strace_raw else ""
@@ -356,6 +358,8 @@ def _run_in_dos_sandbox(file_bytes: bytes, filename: str) -> dict:
                 try:
                     size = int(parts[0])
                     path = parts[1]
+                    if not path.startswith('/'):  # skip 'total' summary line from wc
+                        continue
                     if size > 2:
                         behaviors.append(
                             f"File infector: {os.path.basename(path)} modified "
@@ -431,6 +435,12 @@ def _run_in_wine_sandbox(file_bytes: bytes, filename: str) -> dict:
         )
         container.start()
 
+        # Initialize Wine prefix before execution (wineboot writes registry into /wine tmpfs)
+        container.exec_run(
+            ["sh", "-c", "WINEPREFIX=/wine WINEDEBUG=-all wineboot --init 2>/dev/null"],
+            demux=False
+        )
+
         # Copy decoys into /targets/ (writable tmpfs)
         container.exec_run(["sh", "-c", "cp /decoys/*.exe /targets/"], demux=False)
 
@@ -450,11 +460,12 @@ def _run_in_wine_sandbox(file_bytes: bytes, filename: str) -> dict:
         tar_buf.seek(0)
         container.put_archive("/malware", tar_buf)
 
-        # Run wine under strace — captures Linux syscalls Wine makes for the PE
+        # Run wine under strace — write to /tmp/trace.log to avoid mixing malware stdout
         strace_cmd = (
             "WINEPREFIX=/wine WINEDEBUG=-all "
             "strace -f -e trace=network,file,process,signal "
-            "-o /proc/self/fd/1 timeout 30 wine /malware/target.exe 2>/dev/null"
+            "-o /tmp/trace.log timeout 30 wine /malware/target.exe 2>/dev/null; "
+            "cat /tmp/trace.log"
         )
         _, strace_raw = container.exec_run(["sh", "-c", strace_cmd], demux=False)
         trace_text = (strace_raw or b'').decode("utf-8", errors="replace")
