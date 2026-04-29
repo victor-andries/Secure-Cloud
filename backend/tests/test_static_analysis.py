@@ -45,5 +45,20 @@ def test_com_clean_baseline():
     # Minimal valid COM (just a NOP + exit via INT 21h AH=4Ch)
     data = b'\xEB\x00' + b'\xB4\x4C' + b'\xCD\x21'
     score = _analyze_com_file(data, "clean.com")
-    # Gets baseline 0.20 for being a valid COM + 0.25 for INT 21h = 0.45
+    # Gets baseline 0.20 + 0.25 for INT 21h = 0.45
+    # Size bonus (+0.25) is suppressed because specific_indicators == 0 (no infector-specific pattern)
     assert score <= 0.50, f"Clean COM should score low, got {score}"
+
+
+def test_analyze_file_content_com_infector_sets_threat_type():
+    data = (
+        b'\xEB\x00'
+        b'\xCD\x21'
+        b'\x4E'
+        b'*.com\x00'
+        b'\xB4\x3C'
+    )
+    with mock.patch('redis.Redis'):
+        result = analyze_file_content(data, "virus.com")
+    assert result["threat_type"] == "DOS_COM_INFECTOR"
+    assert result["content_risk_score"] >= 0.50

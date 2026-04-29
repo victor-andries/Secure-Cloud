@@ -226,6 +226,7 @@ def _analyze_com_file(data: bytes, filename: str) -> float:
         infector_score += 0.25
         specific_indicators += 1
 
+    # size bonus only fires when at least one structural infector indicator is already present
     if len(data) < 2048 and specific_indicators > 0:
         infector_score += 0.25  # COM infectors are characteristically tiny (only when infector-specific indicators present)
 
@@ -453,8 +454,8 @@ def analyze_file_content(file_bytes: bytes, filename: str) -> dict:
 
         # --- PE file analysis ---
         if ext in _PE_EXTENSIONS:
-            result["is_pe_file"] = True
             if file_bytes[:2] == b"MZ":
+                result["is_pe_file"] = True
                 if entropy > 6.5:
                     score += 0.40
                     result["threat_type"] = "PACKED_PE"
