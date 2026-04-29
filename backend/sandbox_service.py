@@ -105,7 +105,6 @@ _EXEC_CHAIN_THRESHOLD = 8
 _WRITE_ATTEMPT_THRESHOLD = 3
 
 
-
 def _analyze_trace(trace_text: str) -> dict:
     """Parse strace output and return verdict, score, behaviors, syscall counts."""
     behaviors      = []
@@ -552,6 +551,7 @@ def analyze() -> tuple:
         elif platform == "windows":
             result = _run_in_wine_sandbox(file_bytes, filename)
         else:
+            logger.warning(f"analyze: unhandled platform '{platform}' for '{filename}'")
             return jsonify({"verdict": "SKIPPED", "sandbox_score": 0.0,
                             "behaviors": [], "reason": f"Unhandled platform: {platform}"}), 200
 
