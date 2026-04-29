@@ -62,3 +62,37 @@ def test_analyze_file_content_com_infector_sets_threat_type():
         result = analyze_file_content(data, "virus.com")
     assert result["threat_type"] == "DOS_COM_INFECTOR"
     assert result["content_risk_score"] >= 0.50
+
+
+with mock.patch('redis.Redis'):
+    from ai_detection_service import _analyze_pe_imports
+
+
+def test_pe_injection_triad():
+    data = b'CreateRemoteThread\x00VirtualAllocEx\x00WriteProcessMemory\x00'
+    score = _analyze_pe_imports(data)
+    assert score >= 0.35, f"Injection triad must score >= 0.35, got {score}"
+
+
+def test_pe_persistence():
+    data = b'RegSetValueEx\x00CurrentVersion\\Run\x00'
+    score = _analyze_pe_imports(data)
+    assert score >= 0.25, f"Run key persistence must score >= 0.25, got {score}"
+
+
+def test_pe_ransomware():
+    data = b'CryptEncrypt\x00FindFirstFileW\x00FindNextFileW\x00'
+    score = _analyze_pe_imports(data)
+    assert score >= 0.30, f"Ransomware pattern must score >= 0.30, got {score}"
+
+
+def test_pe_antidebug():
+    data = b'IsDebuggerPresent\x00'
+    score = _analyze_pe_imports(data)
+    assert score >= 0.15, f"Anti-debug must score >= 0.15, got {score}"
+
+
+def test_pe_benign():
+    data = b'CreateWindowEx\x00MessageBox\x00GetLastError\x00'
+    score = _analyze_pe_imports(data)
+    assert score == 0.0, f"Benign imports must score 0.0, got {score}"

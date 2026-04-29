@@ -234,6 +234,29 @@ def _analyze_com_file(data: bytes, filename: str) -> float:
     return min(score, 0.90)
 
 
+def _analyze_pe_imports(data: bytes) -> float:
+    """Score PE binary based on dangerous import name patterns found in its bytes."""
+    score = 0.0
+
+    if (b'CreateRemoteThread' in data
+            and b'VirtualAllocEx' in data
+            and b'WriteProcessMemory' in data):
+        score += 0.35
+
+    if b'RegSetValueEx' in data and b'CurrentVersion\\Run' in data:
+        score += 0.25
+
+    has_crypto = b'CryptEncrypt' in data or b'CryptGenRandom' in data
+    has_enum = b'FindFirstFileW' in data or b'FindFirstFileA' in data
+    if has_crypto and has_enum:
+        score += 0.30
+
+    if b'IsDebuggerPresent' in data or b'CheckRemoteDebuggerPresent' in data:
+        score += 0.15
+
+    return min(score, 0.90)
+
+
 # Document/media formats that are inherently compressed — high entropy is normal,
 # so entropy scoring is suppressed. Pattern scanning still runs on their bytes.
 _DOCUMENT_FORMATS = {
@@ -462,6 +485,13 @@ def analyze_file_content(file_bytes: bytes, filename: str) -> dict:
                     logger.info(f"Packed PE detected: '{filename}' (entropy={entropy:.2f})")
                 else:
                     score += 0.10   # Plain PE — low baseline risk
+                import_score = _analyze_pe_imports(file_bytes)
+                if import_score > 0.0:
+                    score += import_score
+                    result["threat_type"] = result["threat_type"] or "MALICIOUS_PE_IMPORTS"
+                    logger.warning(
+                        f"Dangerous PE imports in '{filename}': score +{import_score:.2f}"
+                    )
 
         # --- Malicious pattern scan (all non-archive, text-decodable files) ---
         # Runs regardless of extension — macro viruses appear in .txt, .html, .rtf, etc.
