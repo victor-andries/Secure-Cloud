@@ -206,9 +206,13 @@ def _analyze_elf_file(data: bytes) -> float:
     score = 0.0
 
     # File infector triad: directory traversal + file modification + self-replication
-    has_dir_walk  = b'opendir' in data and b'readdir' in data
-    has_file_write = b'rename' in data or b'fwrite' in data
-    has_replicate  = (b'chmod' in data or b'fchmod' in data) and b'execve' in data
+    has_dir_walk   = b'opendir' in data and b'readdir' in data
+    has_file_write = (b'rename' in data or b'fwrite' in data or
+                      b'sendfile' in data or b'creat' in data)
+    has_replicate  = (
+        (b'chmod' in data or b'fchmod' in data or b'fork' in data)
+        and (b'execve' in data or b'execv\x00' in data)
+    )
 
     if has_dir_walk and has_file_write and has_replicate:
         score += 0.75   # classic ELF file infector: scan dirs, overwrite, re-exec
@@ -834,14 +838,26 @@ def scan_file() -> tuple:
         rf_score   = run_random_forest(features)
         behavioral = _compute_ensemble(if_score, rf_score)
 
-        # Combined scoring — content dominates when clearly malicious OR archive contains executables.
-        # Without this, the 0.30× multiplier would dilute archive threats below detection thresholds.
-        _ARCHIVE_THREAT_TYPES = {
+        # Combined scoring:
+        # - Content dominates (0.85/0.15) when static analysis identified a specific,
+        #   named malware pattern. Those are high-confidence signals where the file
+        #   itself is the evidence; user-behavioural score should not dilute them.
+        # - Behavioral dominates (0.30/0.70) for everything else (high entropy, generic
+        #   flags, unknown formats) where we're less certain and user context matters.
+        _CONTENT_DOMINANT_TYPES = {
+            # Archive threats
             "ARCHIVE_CONTAINS_EXECUTABLES", "MALICIOUS_CODE_IN_ARCHIVE",
             "MALWARE_IN_ARCHIVE", "SUSPICIOUS_SCRIPT_IN_ARCHIVE",
+            # Executable threats — specific patterns, not just entropy
+            "ELF_INFECTOR",
+            "DOS_COM_INFECTOR",
+            "MALICIOUS_PE_IMPORTS",
+            "PACKED_PE",
+            "MACHO_DYLIB_HIJACKING",
+            "MACHO_SUSPICIOUS",
         }
-        is_archive_threat = layer1.get("threat_type") in _ARCHIVE_THREAT_TYPES
-        if content_score >= 0.8 or is_archive_threat:
+        is_specific_threat = layer1.get("threat_type") in _CONTENT_DOMINANT_TYPES
+        if content_score >= 0.80 or is_specific_threat:
             ensemble_score = 0.85 * content_score + 0.15 * behavioral
         else:
             ensemble_score = 0.30 * content_score + 0.70 * behavioral

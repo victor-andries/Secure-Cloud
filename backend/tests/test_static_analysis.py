@@ -70,6 +70,20 @@ def test_elf_partial_indicators():
     assert 0.0 < score < 0.60, f"Partial indicators must score between 0 and 0.60, got {score}"
 
 
+def test_elf_sendfile_fork_execv_detected():
+    # virus.elf32-style: opendir+readdir + sendfile + fork+execv (no chmod/execve)
+    data = b'\x7fELF' + b'\x00' * 4 + b'opendir\x00readdir\x00sendfile\x00fork\x00execv\x00'
+    score = _analyze_elf_file(data)
+    assert score >= 0.75, f"sendfile+fork+execv infector triad must score >= 0.75, got {score}"
+
+
+def test_elf_creat_fork_execv_detected():
+    # creat() variant: opendir+readdir + creat + fork+execv
+    data = b'\x7fELF' + b'\x00' * 4 + b'opendir\x00readdir\x00creat\x00fork\x00execv\x00'
+    score = _analyze_elf_file(data)
+    assert score >= 0.75, f"creat+fork+execv infector triad must score >= 0.75, got {score}"
+
+
 def test_elf_clean():
     data = b'\x7fELF' + b'\x00' * 4 + b'printf\x00malloc\x00free\x00'
     score = _analyze_elf_file(data)
