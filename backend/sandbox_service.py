@@ -192,8 +192,7 @@ def _run_in_elf_sandbox(file_bytes: bytes, filename: str, runner: list) -> dict:
             security_opt=["no-new-privileges"],
             tmpfs={
                 "/tmp":     "size=50m,noexec,nosuid",
-                "/targets": "size=10m",   # writable + exec for decoy ELFs
-                "/malware": "size=10m",   # writable + exec for malware injection
+                "/targets": "size=10m",   # writable + exec for decoy ELFs and malware
             },
         )
         container.start()
@@ -201,28 +200,27 @@ def _run_in_elf_sandbox(file_bytes: bytes, filename: str, runner: list) -> dict:
         # Copy decoys from image's /decoys/ (read-only) into /targets/ (writable tmpfs)
         container.exec_run(["sh", "-c", "cp /decoys/* /targets/"], demux=False)
 
-        # Capture baseline hashes of all decoy files
+        # Capture baseline hashes of decoy files only (malware injected after this point)
         _, baseline_raw = container.exec_run(
-            ["sh", "-c", "sha256sum /targets/*"], demux=False
+            ["sh", "-c", "sha256sum /targets/decoy*"], demux=False
         )
         baseline_hashes = baseline_raw.decode("utf-8", errors="replace") if baseline_raw else ""
 
-        # Inject malware via Docker API (bypasses read_only for the overlay write)
-        tar_buf = io.BytesIO()
-        with tarfile.open(fileobj=tar_buf, mode="w") as tar:
-            info      = tarfile.TarInfo(name="target")
-            info.size = len(file_bytes)
-            info.mode = 0o755
-            tar.addfile(info, io.BytesIO(file_bytes))
-        tar_buf.seek(0)
-        container.put_archive("/malware", tar_buf)
+        # Inject malware via base64 exec_run — put_archive is rejected by Docker when
+        # read_only=True even for tmpfs-mounted paths, so we pipe through exec instead.
+        import base64 as _b64
+        encoded = _b64.b64encode(file_bytes).decode("ascii")
+        container.exec_run(
+            ["sh", "-c", f"printf '%s' '{encoded}' | base64 -d > /targets/malware && chmod 755 /targets/malware"],
+            demux=False
+        )
 
         # Build strace command string (runner is [] for ELF, ["python3"] for .py, etc.)
         # Write to /tmp/trace.log (writable tmpfs) to avoid mixing malware stdout with strace
         runner_str = " ".join(runner) + " " if runner else ""
         strace_cmd = (
             f"strace -f -e trace=network,file,process,signal "
-            f"-o /tmp/trace.log timeout 20 {runner_str}/malware/target 2>/dev/null; "
+            f"-o /tmp/trace.log timeout 20 {runner_str}/targets/malware 2>/dev/null; "
             f"cat /tmp/trace.log"
         )
         _, strace_raw = container.exec_run(["sh", "-c", strace_cmd], demux=False)
@@ -233,9 +231,9 @@ def _run_in_elf_sandbox(file_bytes: bytes, filename: str, runner: list) -> dict:
 
         logger.debug(f"Trace sample for '{filename}': {trace_text[:500]}")
 
-        # Re-hash decoys; any change means the malware modified them (file infector)
+        # Re-hash decoys only; any change means the malware modified them (file infector)
         _, current_raw = container.exec_run(
-            ["sh", "-c", "sha256sum /targets/*"], demux=False
+            ["sh", "-c", "sha256sum /targets/decoy*"], demux=False
         )
         current_hashes = current_raw.decode("utf-8", errors="replace") if current_raw else ""
         decoy_modified = bool(
@@ -445,27 +443,25 @@ def _run_in_wine_sandbox(file_bytes: bytes, filename: str) -> dict:
         # Copy decoys into /targets/ (writable tmpfs)
         container.exec_run(["sh", "-c", "cp /decoys/*.exe /targets/"], demux=False)
 
-        # Baseline decoy hashes
+        # Baseline decoy hashes (before malware injection)
         _, baseline_raw = container.exec_run(
-            ["sh", "-c", "sha256sum /targets/*.exe"], demux=False
+            ["sh", "-c", "sha256sum /targets/decoy*"], demux=False
         )
         baseline_hashes = (baseline_raw or b'').decode("utf-8", errors="replace")
 
-        # Inject PE target
-        tar_buf = io.BytesIO()
-        with tarfile.open(fileobj=tar_buf, mode="w") as tar:
-            info      = tarfile.TarInfo(name="target.exe")
-            info.size = len(file_bytes)
-            info.mode = 0o755
-            tar.addfile(info, io.BytesIO(file_bytes))
-        tar_buf.seek(0)
-        container.put_archive("/malware", tar_buf)
+        # Inject PE via base64 exec_run — put_archive is rejected when read_only=True
+        import base64 as _b64
+        encoded = _b64.b64encode(file_bytes).decode("ascii")
+        container.exec_run(
+            ["sh", "-c", f"printf '%s' '{encoded}' | base64 -d > /targets/malware.exe && chmod 755 /targets/malware.exe"],
+            demux=False
+        )
 
         # Run wine under strace — write to /tmp/trace.log to avoid mixing malware stdout
         strace_cmd = (
             "WINEPREFIX=/wine WINEDEBUG=-all "
             "strace -f -e trace=network,file,process,signal "
-            "-o /tmp/trace.log timeout 30 wine /malware/target.exe 2>/dev/null; "
+            "-o /tmp/trace.log timeout 30 wine /targets/malware.exe 2>/dev/null; "
             "cat /tmp/trace.log"
         )
         _, strace_raw = container.exec_run(["sh", "-c", strace_cmd], demux=False)
@@ -473,9 +469,9 @@ def _run_in_wine_sandbox(file_bytes: bytes, filename: str) -> dict:
 
         logger.debug(f"Wine strace sample for '{filename}': {trace_text[:500]}")
 
-        # Post-execution decoy integrity check
+        # Post-execution decoy integrity check (decoys only, not the malware itself)
         _, current_raw = container.exec_run(
-            ["sh", "-c", "sha256sum /targets/*.exe"], demux=False
+            ["sh", "-c", "sha256sum /targets/decoy*"], demux=False
         )
         current_hashes = (current_raw or b'').decode("utf-8", errors="replace")
         decoy_modified = bool(
