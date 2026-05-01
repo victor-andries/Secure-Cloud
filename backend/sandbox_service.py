@@ -223,7 +223,10 @@ def _run_in_elf_sandbox(file_bytes: bytes, filename: str, runner: list) -> dict:
             f"-o /tmp/trace.log timeout 20 {runner_str}/targets/malware 2>/dev/null; "
             f"cat /tmp/trace.log"
         )
-        _, strace_raw = container.exec_run(["sh", "-c", strace_cmd], demux=False)
+        # workdir=/targets so opendir(".") finds the decoy ELFs (file infectors scan cwd)
+        _, strace_raw = container.exec_run(
+            ["sh", "-c", strace_cmd], demux=False, workdir="/targets"
+        )
         trace_text = strace_raw.decode("utf-8", errors="replace") if strace_raw else ""
 
         if not trace_text.strip():
