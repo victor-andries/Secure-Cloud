@@ -193,6 +193,37 @@ _MEDIUM_RISK_RE = [
 _PE_EXTENSIONS = {"exe", "dll", "sys", "scr", "com"}
 
 
+def _analyze_elf_file(data: bytes) -> float:
+    """Heuristic scoring for ELF executables based on imported symbol strings.
+
+    Mirrors _analyze_pe_imports() but for ELF: symbol names appear as
+    null-terminated strings in .dynstr / .strtab sections, so a simple
+    substring scan is sufficient without parsing ELF section headers.
+    """
+    if data[:4] != b'\x7fELF':
+        return 0.0
+
+    score = 0.0
+
+    # File infector triad: directory traversal + file modification + self-replication
+    has_dir_walk  = b'opendir' in data and b'readdir' in data
+    has_file_write = b'rename' in data or b'fwrite' in data
+    has_replicate  = (b'chmod' in data or b'fchmod' in data) and b'execve' in data
+
+    if has_dir_walk and has_file_write and has_replicate:
+        score += 0.60   # classic ELF file infector: scan dirs, overwrite, re-exec
+    elif has_dir_walk and has_file_write:
+        score += 0.30
+
+    if b'ptrace' in data:
+        score += 0.20   # anti-debug or process injection
+
+    if b'/proc/self/mem' in data:
+        score += 0.25   # direct process memory injection
+
+    return min(score, 0.90)
+
+
 def _analyze_com_file(data: bytes, filename: str) -> float:
     """Heuristic scoring for DOS COM file infectors."""
     if not filename.lower().endswith('.com'):
@@ -521,6 +552,15 @@ def analyze_file_content(file_bytes: bytes, filename: str) -> dict:
             elif entropy > 7.2:
                 score += 0.15   # Compressed or encrypted content
                 result["is_high_entropy"] = True
+
+        # --- ELF file analysis ---
+        elf_score = _analyze_elf_file(file_bytes)
+        if elf_score > 0.0:
+            score += elf_score
+            result["threat_type"] = result["threat_type"] or "ELF_INFECTOR"
+            logger.warning(
+                f"ELF infector indicators in '{filename}': score={elf_score:.2f}"
+            )
 
         # --- DOS COM file analysis ---
         com_score = _analyze_com_file(file_bytes, filename)

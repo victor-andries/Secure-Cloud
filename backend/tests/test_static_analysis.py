@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 # Patch redis before importing the module (avoids connection errors in tests)
 import unittest.mock as mock
 with mock.patch('redis.Redis'):
-    from ai_detection_service import _analyze_com_file, analyze_file_content
+    from ai_detection_service import _analyze_com_file, _analyze_elf_file, analyze_file_content
 
 
 def test_com_infector_detected():
@@ -48,6 +48,32 @@ def test_com_clean_baseline():
     # Gets baseline 0.20 + 0.25 for INT 21h = 0.45
     # Size bonus (+0.25) is suppressed because specific_indicators == 0 (no infector-specific pattern)
     assert score <= 0.50, f"Clean COM should score low, got {score}"
+
+
+def test_elf_file_infector_detected():
+    # X21-style: opendir+readdir + rename+fwrite + chmod+execve
+    data = b'\x7fELF' + b'\x00' * 4 + b'opendir\x00readdir\x00rename\x00fwrite\x00chmod\x00execve\x00'
+    score = _analyze_elf_file(data)
+    assert score >= 0.60, f"ELF file infector triad must score >= 0.60, got {score}"
+
+
+def test_elf_not_elf():
+    data = b'MZ' + b'\x00' * 100
+    score = _analyze_elf_file(data)
+    assert score == 0.0, f"Non-ELF must score 0.0, got {score}"
+
+
+def test_elf_partial_indicators():
+    # opendir+readdir but no rename/chmod/execve — suspicious but not full triad
+    data = b'\x7fELF' + b'\x00' * 4 + b'opendir\x00readdir\x00fwrite\x00'
+    score = _analyze_elf_file(data)
+    assert 0.0 < score < 0.60, f"Partial indicators must score between 0 and 0.60, got {score}"
+
+
+def test_elf_clean():
+    data = b'\x7fELF' + b'\x00' * 4 + b'printf\x00malloc\x00free\x00'
+    score = _analyze_elf_file(data)
+    assert score == 0.0, f"Clean ELF must score 0.0, got {score}"
 
 
 def test_analyze_file_content_com_infector_sets_threat_type():
