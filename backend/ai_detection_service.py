@@ -211,9 +211,9 @@ def _analyze_elf_file(data: bytes) -> float:
     has_replicate  = (b'chmod' in data or b'fchmod' in data) and b'execve' in data
 
     if has_dir_walk and has_file_write and has_replicate:
-        score += 0.60   # classic ELF file infector: scan dirs, overwrite, re-exec
+        score += 0.75   # classic ELF file infector: scan dirs, overwrite, re-exec
     elif has_dir_walk and has_file_write:
-        score += 0.30
+        score += 0.35
 
     if b'ptrace' in data:
         score += 0.20   # anti-debug or process injection

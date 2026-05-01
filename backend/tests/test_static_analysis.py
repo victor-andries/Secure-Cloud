@@ -54,7 +54,7 @@ def test_elf_file_infector_detected():
     # X21-style: opendir+readdir + rename+fwrite + chmod+execve
     data = b'\x7fELF' + b'\x00' * 4 + b'opendir\x00readdir\x00rename\x00fwrite\x00chmod\x00execve\x00'
     score = _analyze_elf_file(data)
-    assert score >= 0.60, f"ELF file infector triad must score >= 0.60, got {score}"
+    assert score >= 0.75, f"ELF file infector triad must score >= 0.75, got {score}"
 
 
 def test_elf_not_elf():

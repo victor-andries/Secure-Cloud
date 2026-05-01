@@ -179,17 +179,17 @@ def upload_file() -> tuple:
                 "sandbox_behaviors": sb_result.get("behaviors", []),
             }), 403
 
-        # Sandbox SUSPICIOUS + AI MEDIUM → escalate to block
-        if sb_verdict == "SUSPICIOUS" and ai_level == "MEDIUM":
+        # Sandbox SUSPICIOUS → block immediately; runtime evidence is authoritative
+        if sb_verdict == "SUSPICIOUS":
             logger.warning(
-                f"Upload BLOCKED (sandbox SUSPICIOUS + AI MEDIUM): user={user_address}"
+                f"Upload BLOCKED by sandbox (SUSPICIOUS): user={user_address}, "
+                f"behaviors={sb_result.get('behaviors', [])}"
             )
             blockchain_log(file_id, "upload_blocked_sandbox", False, True)
             return jsonify({
-                "error": "Upload blocked — suspicious executable behaviour combined with anomalous activity",
+                "error": "Upload blocked — suspicious executable behaviour detected at runtime",
                 "sandbox_verdict": sb_verdict,
                 "sandbox_behaviors": sb_result.get("behaviors", []),
-                "ai_level": ai_level,
             }), 403
 
         # Step 2: Upload to MinIO
