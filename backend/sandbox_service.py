@@ -193,6 +193,7 @@ def _run_in_elf_sandbox(file_bytes: bytes, filename: str, runner: list) -> dict:
             tmpfs={
                 "/tmp":     "size=50m,noexec,nosuid",
                 "/targets": "size=10m",   # writable + exec for decoy ELFs
+                "/malware": "size=10m",   # writable + exec for malware injection
             },
         )
         container.start()
