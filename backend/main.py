@@ -148,8 +148,9 @@ def upload_file() -> tuple:
         ai_level = ai_result.get("level", "NORMAL")
         ai_score = ai_result.get("ensemble_score", 0.0)
 
-        if ai_level in ("CRITICAL", "HIGH"):
-            logger.warning(f"Upload BLOCKED by AI: user={user_address}, level={ai_level}, score={ai_score}")
+        # CRITICAL is definitive — skip sandbox and block immediately
+        if ai_level == "CRITICAL":
+            logger.warning(f"Upload BLOCKED by AI (CRITICAL): user={user_address}, score={ai_score}")
             blockchain_log(file_id, "upload_blocked", False, True)
             return jsonify({
                 "error": "Upload blocked due to anomaly detection",
@@ -157,7 +158,7 @@ def upload_file() -> tuple:
                 "ai_score": ai_score
             }), 403
 
-        # Step 1b: Sandbox dynamic analysis (executables only)
+        # Step 1b: Sandbox dynamic analysis (executables + HIGH-risk files always run)
         fname = uploaded_file.filename or "unknown"
         ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
         is_elf = file_data[:4] == b"\x7fELF"
@@ -190,6 +191,16 @@ def upload_file() -> tuple:
                 "error": "Upload blocked — suspicious executable behaviour detected at runtime",
                 "sandbox_verdict": sb_verdict,
                 "sandbox_behaviors": sb_result.get("behaviors", []),
+            }), 403
+
+        # AI HIGH → block after sandbox has had a chance to run
+        if ai_level == "HIGH":
+            logger.warning(f"Upload BLOCKED by AI (HIGH): user={user_address}, score={ai_score}")
+            blockchain_log(file_id, "upload_blocked", False, True)
+            return jsonify({
+                "error": "Upload blocked due to anomaly detection",
+                "ai_level": ai_level,
+                "ai_score": ai_score
             }), 403
 
         # Step 2: Upload to MinIO

@@ -37,6 +37,32 @@ _RUNNERS = {
     "pl":   ["perl"],
 }
 
+# ELF e_machine → qemu-user-static invocation (empty = native x86-64, run directly).
+# -L <sysroot> tells QEMU where to find the guest dynamic linker and libc.
+_ELF_MACHINE_QEMU: dict[int, str] = {
+    3:   "qemu-i386-static",                                       # EM_386
+    40:  "qemu-arm-static -L /usr/arm-linux-gnueabihf",            # EM_ARM (RPi, IoT)
+    183: "qemu-aarch64-static -L /usr/aarch64-linux-gnu",          # EM_AARCH64
+    8:   "qemu-mips-static",                                       # EM_MIPS
+    20:  "qemu-ppc-static",                                        # EM_PPC
+    21:  "qemu-ppc64-static",                                      # EM_PPC64
+}
+
+
+def _qemu_for_elf(file_bytes: bytes) -> str:
+    """Return the qemu-user-static binary needed to run this ELF, or '' for native x86-64."""
+    if len(file_bytes) < 20 or file_bytes[:4] != b'\x7fELF':
+        return ""
+    ei_data = file_bytes[5]  # 1=LE, 2=BE
+    if ei_data == 1:
+        e_machine = file_bytes[18] | (file_bytes[19] << 8)
+    else:
+        e_machine = (file_bytes[18] << 8) | file_bytes[19]
+    if e_machine == 62:  # EM_X86_64 — native, no emulation needed
+        return ""
+    return _ELF_MACHINE_QEMU.get(e_machine, "")
+
+
 _MACHO_MAGICS = {
     0xFEEDFACE, 0xCEFAEDFE,   # Mach-O 32-bit (big and little endian)
     0xFEEDFACF, 0xCFFAEDFE,   # Mach-O 64-bit
@@ -91,8 +117,15 @@ _SUSPICIOUS_PATTERNS = [
     (re.compile(r'chmod\(.*0[0-9]*[67][0-9]*\)'),     "Making file executable"),
     (re.compile(r'unlink\(|unlinkat\('),               "File deletion"),
     (re.compile(r'bind\('),                            "Socket bind (listener)"),
+    # Absolute path write to /targets/ decoy files
     (re.compile(r'openat?\(.*"/targets/[^"]+",.*O_(?:WRONLY|RDWR)'),
      "Attempted write to decoy target file — possible file infector"),
+    # Relative path write to decoy files (workdir=/targets, virus uses opendir("."))
+    (re.compile(r'openat?\(.*"decoy_[^"]*",.*O_(?:WRONLY|RDWR|CREAT)'),
+     "Attempted write to decoy target file — possible file infector"),
+    # sendfile() copies file content into another fd — used by some ELF infectors instead of write()
+    (re.compile(r'sendfile\('),
+     "File content copied via sendfile — possible file infector"),
     (re.compile(r'openat?\(.*O_(?:WRONLY|RDWR|CREAT).*=\s*-1\s*E(?:PERM|ACCES|ROFS)'),
      "Blocked file write attempt — possible file infector"),
     (re.compile(r'write\(.*=\s*-1\s*E(?:PERM|ROFS)'),
@@ -129,6 +162,7 @@ def _analyze_trace(trace_text: str) -> dict:
 
     fork_count  = syscall_counts.get("fork", 0) + syscall_counts.get("clone", 0)
     exec_count  = syscall_counts.get("execve", 0)
+
 
     # Count file write attempts — classic Unix virus infection pattern
     write_attempts = sum(
@@ -192,7 +226,7 @@ def _run_in_elf_sandbox(file_bytes: bytes, filename: str, runner: list) -> dict:
             security_opt=["no-new-privileges"],
             tmpfs={
                 "/tmp":     "size=50m,noexec,nosuid",
-                "/targets": "size=10m",   # writable + exec for decoy ELFs and malware
+                "/targets": "size=10m,exec",   # exec required: read_only=True makes Docker default to noexec on tmpfs
             },
         )
         container.start()
@@ -208,19 +242,27 @@ def _run_in_elf_sandbox(file_bytes: bytes, filename: str, runner: list) -> dict:
 
         # Inject malware via base64 exec_run — put_archive is rejected by Docker when
         # read_only=True even for tmpfs-mounted paths, so we pipe through exec instead.
+        # chmod runs as a separate call so a partial write can't skip it.
         import base64 as _b64
         encoded = _b64.b64encode(file_bytes).decode("ascii")
         container.exec_run(
-            ["sh", "-c", f"printf '%s' '{encoded}' | base64 -d > /targets/malware && chmod 755 /targets/malware"],
+            ["sh", "-c", f"printf '%s' '{encoded}' | base64 -d > /targets/malware"],
             demux=False
         )
+        container.exec_run(["chmod", "755", "/targets/malware"], demux=False)
+
+        # Select QEMU runner based on ELF machine type; empty = native x86-64.
+        qemu = _qemu_for_elf(file_bytes)
+        qemu_prefix = f"{qemu} " if qemu else ""
+        if qemu:
+            logger.info(f"'{filename}' is non-native ELF — using {qemu} for execution")
 
         # Build strace command string (runner is [] for ELF, ["python3"] for .py, etc.)
         # Write to /tmp/trace.log (writable tmpfs) to avoid mixing malware stdout with strace
         runner_str = " ".join(runner) + " " if runner else ""
         strace_cmd = (
             f"strace -f -e trace=network,file,process,signal "
-            f"-o /tmp/trace.log timeout 20 {runner_str}/targets/malware 2>/dev/null; "
+            f"-o /tmp/trace.log timeout 20 {qemu_prefix}{runner_str}/targets/malware 2>/dev/null; "
             f"cat /tmp/trace.log"
         )
         # workdir=/targets so opendir(".") finds the decoy ELFs (file infectors scan cwd)
@@ -232,7 +274,17 @@ def _run_in_elf_sandbox(file_bytes: bytes, filename: str, runner: list) -> dict:
         if not trace_text.strip():
             logger.warning(f"Empty strace output for '{filename}'")
 
-        logger.debug(f"Trace sample for '{filename}': {trace_text[:500]}")
+        # For small traces log everything; for large ones filter to security-relevant lines
+        trace_lines = trace_text.splitlines()
+        if len(trace_lines) <= 150:
+            logger.info(f"Full trace for '{filename}' ({len(trace_lines)} lines):\n{trace_text}")
+        else:
+            keywords = ("malware", "decoy", "sendfile", "O_WRONLY", "O_RDWR", "O_CREAT",
+                        "ENOEXEC", "EPERM", "EROFS", "EACCES", "creat(", "getdents", "\.elf")
+            relevant = [l for l in trace_lines if any(k in l for k in keywords)]
+            logger.info(f"Trace diagnostics for '{filename}' "
+                        f"(total_lines={len(trace_lines)}, relevant={len(relevant)}): "
+                        f"{relevant[:60]}")
 
         # Re-hash decoys only; any change means the malware modified them (file infector)
         _, current_raw = container.exec_run(
@@ -453,12 +505,14 @@ def _run_in_wine_sandbox(file_bytes: bytes, filename: str) -> dict:
         baseline_hashes = (baseline_raw or b'').decode("utf-8", errors="replace")
 
         # Inject PE via base64 exec_run — put_archive is rejected when read_only=True
+        # chmod runs as a separate call so a partial write can't skip it.
         import base64 as _b64
         encoded = _b64.b64encode(file_bytes).decode("ascii")
         container.exec_run(
-            ["sh", "-c", f"printf '%s' '{encoded}' | base64 -d > /targets/malware.exe && chmod 755 /targets/malware.exe"],
+            ["sh", "-c", f"printf '%s' '{encoded}' | base64 -d > /targets/malware.exe"],
             demux=False
         )
+        container.exec_run(["chmod", "755", "/targets/malware.exe"], demux=False)
 
         # Run wine under strace — write to /tmp/trace.log to avoid mixing malware stdout
         strace_cmd = (
