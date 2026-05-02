@@ -5,6 +5,8 @@ import os
 import json
 import logging
 import threading
+import time
+from collections import deque
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from web3 import Web3
@@ -30,6 +32,16 @@ account  = None
 
 _nonce_lock:  threading.Lock = threading.Lock()
 _local_nonce: int | None     = None
+
+# Off-chain level cache: stores anomaly_level string alongside on-chain boolean flag
+_level_log: deque = deque(maxlen=2000)
+
+
+def _lookup_level(file_id: str, action: str, ip_address: str) -> str | None:
+    for entry in _level_log:
+        if entry["file_id"] == file_id and entry["action"] == action and entry["ip_address"] == ip_address:
+            return entry["anomaly_level"]
+    return None
 
 
 def load_contract() -> None:
@@ -269,6 +281,15 @@ def log_access() -> tuple:
             if field not in body:
                 return jsonify({"error": f"Missing field: {field}"}), 400
 
+        anomaly_level = body.get("anomaly_level", "HIGH" if body["anomaly_flag"] else "NORMAL")
+        _level_log.appendleft({
+            "file_id":       body["file_id"],
+            "action":        body["action"],
+            "ip_address":    body["ip_address"],
+            "anomaly_level": anomaly_level,
+            "logged_at":     int(time.time()),
+        })
+
         fn_call = contract.functions.logAccess(
             body["file_id"],
             body["action"],
@@ -277,7 +298,7 @@ def log_access() -> tuple:
             bool(body["anomaly_flag"])
         )
         tx_hash = send_transaction(fn_call)
-        logger.info(f"Access logged: {body['file_id']}, action: {body['action']}, tx: {tx_hash}")
+        logger.info(f"Access logged: {body['file_id']}, action: {body['action']}, level: {anomaly_level}, tx: {tx_hash}")
         return jsonify({"success": True, "tx_hash": tx_hash}), 200
 
     except Exception as exc:
@@ -324,18 +345,20 @@ def get_anomalies() -> tuple:
         page_size = int(request.args.get("page_size", 20))
 
         logs_raw = contract.functions.getAnomalyLogs(page, page_size).call()
-        logs = [
-            {
-                "user": log[0],
-                "file_id": log[1],
-                "action": log[2],
-                "ip_address": log[3],
-                "timestamp": log[4],
-                "success": log[5],
-                "anomaly_flag": log[6]
-            }
-            for log in logs_raw
-        ]
+        logs = []
+        for log in logs_raw:
+            file_id, action, ip_address = log[1], log[2], log[3]
+            level = _lookup_level(file_id, action, ip_address) or ("HIGH" if log[6] else "NORMAL")
+            logs.append({
+                "user":          log[0],
+                "file_id":       file_id,
+                "action":        action,
+                "ip_address":    ip_address,
+                "timestamp":     log[4],
+                "success":       log[5],
+                "anomaly_flag":  log[6],
+                "anomaly_level": level,
+            })
         return jsonify({"page": page, "page_size": page_size, "anomalies": logs}), 200
 
     except Exception as exc:

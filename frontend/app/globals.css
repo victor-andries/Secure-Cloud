@@ -2,92 +2,91 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --foreground-rgb: 229, 231, 235;
-  --background-start-rgb: 15, 15, 26;
-  --background-end-rgb: 10, 10, 20;
-}
-
-html,
-body {
-  background-color: #0f0f1a;
-  color: rgb(var(--foreground-rgb));
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-}
-
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: #1a1a2e;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #6366f1;
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #4f46e5;
-}
-
-/* Firefox */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #6366f1 #1a1a2e;
-}
-
-/* Glassmorphism utility */
-@layer utilities {
-  .glass {
-    background: rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+@layer base {
+  :root {
+    --background: #09090b;
+    --foreground: #e4e4e8;
+    --card: #0f1117;
+    --card-foreground: #e4e4e8;
+    --popover: #0f1117;
+    --popover-foreground: #e4e4e8;
+    --primary: #fbbf24;
+    --primary-foreground: #09090b;
+    --secondary: #1a1d2a;
+    --secondary-foreground: #c4c4cc;
+    --muted: #141420;
+    --muted-foreground: #6b7280;
+    --accent: #fbbf24;
+    --accent-foreground: #09090b;
+    --destructive: #ef4444;
+    --destructive-foreground: #fef2f2;
+    --border: #1e2030;
+    --input: #161820;
+    --ring: #fbbf24;
+    --radius: 0.25rem;
   }
 
-  .glass-strong {
-    background: rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  .text-gradient {
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-body, "Outfit", system-ui, sans-serif);
+    background-image: radial-gradient(circle, rgba(42, 46, 80, 0.38) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading, "Syne", system-ui, sans-serif);
   }
 }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #0a0a0c; }
+::-webkit-scrollbar-thumb { background: #fbbf24; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #f59e0b; }
+* { scrollbar-width: thin; scrollbar-color: #fbbf24 #0a0a0c; }
 
 /* Animations */
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 8px rgba(99, 102, 241, 0.4); }
-  50% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.8); }
+  0%, 100% { box-shadow: 0 0 6px rgba(251, 191, 36, 0.3); }
+  50%       { box-shadow: 0 0 14px rgba(251, 191, 36, 0.6); }
 }
 
 .animate-pulse-glow {
   animation: pulse-glow 2s ease-in-out infinite;
 }
 
-/* Table styles */
-table {
-  border-collapse: collapse;
-  width: 100%;
+@layer utilities {
+  .glass {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .glass-strong {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+  }
+
+  .section-label {
+    font-family: var(--font-mono, "JetBrains Mono", monospace);
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+
+  .text-gradient {
+    background: linear-gradient(135deg, #fbbf24, #f97316);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
 }
 
-th {
-  background: rgba(99, 102, 241, 0.1);
-  color: #a5b4fc;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-tr:hover {
-  background: rgba(255, 255, 255, 0.03);
-}
+/* Table base — components handle the rest */
+table { border-collapse: collapse; width: 100%; }

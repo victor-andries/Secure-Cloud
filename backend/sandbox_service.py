@@ -8,6 +8,7 @@ import time
 import struct
 import tarfile
 import logging
+import docker
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -204,8 +205,6 @@ def _run_in_elf_sandbox(file_bytes: bytes, filename: str, runner: list) -> dict:
     Uses decoy ELF files in /targets/ (writable tmpfs) to detect file infectors:
     hashes are captured before and after execution; any change = MALICIOUS.
     """
-    import docker
-    import docker.errors
 
     start_ms  = time.time()
     container = None
@@ -331,8 +330,6 @@ def _run_in_dos_sandbox(file_bytes: bytes, filename: str) -> dict:
     Any size increase in a decoy = file infector confirmed.
     Any new .com files = dropper behavior.
     """
-    import docker
-    import docker.errors
 
     start_ms  = time.time()
     container = None
@@ -461,8 +458,6 @@ def _run_in_wine_sandbox(file_bytes: bytes, filename: str) -> dict:
     strace captures Linux syscalls Wine makes on behalf of the Windows process.
     Decoy PE files in /targets/ are integrity-checked after execution.
     """
-    import docker
-    import docker.errors
 
     start_ms  = time.time()
     container = None

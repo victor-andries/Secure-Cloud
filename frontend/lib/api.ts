@@ -155,7 +155,8 @@ function mapLog(l: Record<string, unknown>) {
     ipAddress:   (l.ip_address ?? l.ipAddress ?? "") as string,
     timestamp:   (l.timestamp ?? 0) as number,
     success:     (l.success ?? true) as boolean,
-    anomalyFlag: (l.anomaly_flag ?? l.anomalyFlag ?? false) as boolean,
+    anomalyFlag:  (l.anomaly_flag ?? l.anomalyFlag ?? false) as boolean,
+    anomalyLevel: (l.anomaly_level ?? l.anomalyLevel ?? undefined) as import("@/types").AnomalyLevel | undefined,
   };
 }
 

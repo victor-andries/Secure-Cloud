@@ -34,6 +34,7 @@ export interface AccessLog {
   timestamp: number;
   success: boolean;
   anomalyFlag: boolean;
+  anomalyLevel?: AnomalyLevel;
 }
 
 // ─── AI Detection ─────────────────────────────────────────────────────────────

@@ -100,7 +100,7 @@ def sandbox_scan(file_bytes: bytes, filename: str) -> dict:
         return {"verdict": "ERROR", "sandbox_score": 0.0, "behaviors": []}
 
 
-def blockchain_log(file_id: str, action: str, success: bool, anomaly_flag: bool) -> None:
+def blockchain_log(file_id: str, action: str, success: bool, anomaly_flag: bool, anomaly_level: str = "NORMAL") -> None:
     """Log access event to blockchain (best-effort)."""
     try:
         payload = {
@@ -108,7 +108,8 @@ def blockchain_log(file_id: str, action: str, success: bool, anomaly_flag: bool)
             "action": action,
             "ip_address": get_client_ip(),
             "success": success,
-            "anomaly_flag": anomaly_flag
+            "anomaly_flag": anomaly_flag,
+            "anomaly_level": anomaly_level,
         }
         requests.post(f"{BLOCKCHAIN_URL}/audit/log", json=payload, timeout=REQUEST_TIMEOUT)
     except Exception as exc:
@@ -151,7 +152,7 @@ def upload_file() -> tuple:
         # CRITICAL is definitive — skip sandbox and block immediately
         if ai_level == "CRITICAL":
             logger.warning(f"Upload BLOCKED by AI (CRITICAL): user={user_address}, score={ai_score}")
-            blockchain_log(file_id, "upload_blocked", False, True)
+            blockchain_log(file_id, "upload_blocked", False, True, ai_level)
             return jsonify({
                 "error": "Upload blocked due to anomaly detection",
                 "ai_level": ai_level,
@@ -173,7 +174,7 @@ def upload_file() -> tuple:
                 f"Upload BLOCKED by sandbox: user={user_address}, "
                 f"behaviors={sb_result.get('behaviors', [])}"
             )
-            blockchain_log(file_id, "upload_blocked_sandbox", False, True)
+            blockchain_log(file_id, "upload_blocked_sandbox", False, True, ai_level)
             return jsonify({
                 "error": "Upload blocked by sandbox analysis",
                 "sandbox_verdict": sb_verdict,
@@ -186,7 +187,7 @@ def upload_file() -> tuple:
                 f"Upload BLOCKED by sandbox (SUSPICIOUS): user={user_address}, "
                 f"behaviors={sb_result.get('behaviors', [])}"
             )
-            blockchain_log(file_id, "upload_blocked_sandbox", False, True)
+            blockchain_log(file_id, "upload_blocked_sandbox", False, True, ai_level)
             return jsonify({
                 "error": "Upload blocked — suspicious executable behaviour detected at runtime",
                 "sandbox_verdict": sb_verdict,
@@ -196,7 +197,7 @@ def upload_file() -> tuple:
         # AI HIGH → block after sandbox has had a chance to run
         if ai_level == "HIGH":
             logger.warning(f"Upload BLOCKED by AI (HIGH): user={user_address}, score={ai_score}")
-            blockchain_log(file_id, "upload_blocked", False, True)
+            blockchain_log(file_id, "upload_blocked", False, True, ai_level)
             return jsonify({
                 "error": "Upload blocked due to anomaly detection",
                 "ai_level": ai_level,
@@ -217,7 +218,7 @@ def upload_file() -> tuple:
         )
         if not storage_resp.ok:
             logger.error(f"Storage upload failed: {storage_resp.text}")
-            blockchain_log(file_id, "upload", False, ai_level != "NORMAL")
+            blockchain_log(file_id, "upload", False, ai_level != "NORMAL", ai_level)
             return jsonify({"error": "Storage upload failed", "detail": storage_resp.json()}), 500
 
         storage_data = storage_resp.json()
@@ -263,7 +264,7 @@ def upload_file() -> tuple:
             logger.warning(f"Blockchain registration error (non-blocking): {exc}")
 
         # Step 4: Audit log
-        blockchain_log(file_id, "upload", True, ai_level not in ("NORMAL", "MEDIUM"))
+        blockchain_log(file_id, "upload", True, ai_level not in ("NORMAL", "MEDIUM"), ai_level)
 
         return jsonify({
             "success": True,
@@ -336,7 +337,7 @@ def download_file(file_id: str) -> tuple:
         ai_score = ai_result.get("ensemble_score", 0.0)
 
         if ai_level in ("CRITICAL", "HIGH"):
-            blockchain_log(file_id, "download_blocked", False, True)
+            blockchain_log(file_id, "download_blocked", False, True, ai_level)
             return jsonify({
                 "error": "Download blocked due to anomaly detection",
                 "ai_level": ai_level,
@@ -350,13 +351,13 @@ def download_file(file_id: str) -> tuple:
             timeout=REQUEST_TIMEOUT * 5
         )
         if not dl_resp.ok:
-            blockchain_log(file_id, "download", False, ai_level != "NORMAL")
+            blockchain_log(file_id, "download", False, ai_level != "NORMAL", ai_level)
             return jsonify({"error": "Download failed", "detail": dl_resp.json()}), 500
 
         dl_data = dl_resp.json()
 
         # Step 4: Audit log
-        blockchain_log(file_id, "download", True, ai_level not in ("NORMAL", "MEDIUM"))
+        blockchain_log(file_id, "download", True, ai_level not in ("NORMAL", "MEDIUM"), ai_level)
 
         return jsonify({
             "success": True,

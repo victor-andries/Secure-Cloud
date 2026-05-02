@@ -3,34 +3,37 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import WalletConnect from "@/components/WalletConnect";
+import { cn } from "@/lib/utils";
 
 const navLinks = [
   { href: "/",         label: "Dashboard" },
   { href: "/upload",   label: "Upload"    },
   { href: "/files",    label: "Files"     },
   { href: "/audit",    label: "Audit"     },
-  { href: "/security", label: "Security"  }
+  { href: "/security", label: "Security"  },
 ];
 
 export default function Navbar() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/10 bg-[#0f0f1a]/80 backdrop-blur-md">
+    <nav className="fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur-sm border-b border-border">
+      {/* Amber top rule */}
+      <div className="h-[2px] w-full bg-primary" />
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
+        <div className="flex items-center justify-between h-14">
 
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2 shrink-0">
-            <div className="w-8 h-8 rounded-lg bg-primary-600 flex items-center justify-center shadow-lg shadow-primary-500/30">
-              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-                />
+          <Link href="/" className="flex items-center gap-2.5 group">
+            <div className="w-7 h-7 flex items-center justify-center border border-primary/40 text-primary group-hover:bg-primary/10 transition-colors">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round"
+                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
               </svg>
             </div>
-            <span className="text-white font-bold text-lg tracking-tight">
-              Secure<span className="text-gradient">Cloud</span>
+            <span className="font-heading text-sm font-semibold tracking-tight text-foreground">
+              Secure<span className="text-primary">Cloud</span>
             </span>
           </Link>
 
@@ -42,15 +45,17 @@ export default function Navbar() {
                 <Link
                   key={href}
                   href={href}
-                  className={`
-                    px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200
-                    ${isActive
-                      ? "bg-primary-600/20 text-primary-300 border border-primary-500/30"
-                      : "text-gray-400 hover:text-white hover:bg-white/5"
-                    }
-                  `}
+                  className={cn(
+                    "relative px-3 py-4 text-sm font-medium tracking-wide transition-colors",
+                    isActive
+                      ? "text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
                 >
                   {label}
+                  {isActive && (
+                    <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary" />
+                  )}
                 </Link>
               );
             })}

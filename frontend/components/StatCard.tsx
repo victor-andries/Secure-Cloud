@@ -1,62 +1,58 @@
 "use client";
 
+import { Card, CardContent } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import type { StatCardProps } from "@/types";
 
-const colorMap: Record<NonNullable<StatCardProps["color"]>, string> = {
-  primary:   "from-primary-500/20 to-primary-600/10 border-primary-500/20",
-  secondary: "from-secondary-500/20 to-secondary-600/10 border-secondary-500/20",
-  danger:    "from-danger-500/20 to-danger-600/10 border-danger-500/20",
-  warning:   "from-warning-500/20 to-warning-600/10 border-warning-500/20",
-  success:   "from-success-500/20 to-success-600/10 border-success-500/20"
+const accentBorder: Record<NonNullable<StatCardProps["color"]>, string> = {
+  primary:   "border-l-primary",
+  secondary: "border-l-sky-500",
+  danger:    "border-l-red-500",
+  warning:   "border-l-orange-500",
+  success:   "border-l-emerald-500",
 };
 
-const iconColorMap: Record<NonNullable<StatCardProps["color"]>, string> = {
-  primary:   "text-primary-400",
-  secondary: "text-secondary-500",
-  danger:    "text-danger-500",
-  warning:   "text-warning-500",
-  success:   "text-success-500"
+const valueColor: Record<NonNullable<StatCardProps["color"]>, string> = {
+  primary:   "text-primary",
+  secondary: "text-sky-400",
+  danger:    "text-red-400",
+  warning:   "text-orange-400",
+  success:   "text-emerald-400",
+};
+
+const iconColor: Record<NonNullable<StatCardProps["color"]>, string> = {
+  primary:   "text-primary/70",
+  secondary: "text-sky-500/70",
+  danger:    "text-red-500/70",
+  warning:   "text-orange-500/70",
+  success:   "text-emerald-500/70",
 };
 
 export default function StatCard({ title, value, icon, trend, color = "primary" }: StatCardProps) {
-  const gradientClass = colorMap[color];
-  const iconClass = iconColorMap[color];
-
   return (
-    <div
-      className={`
-        relative overflow-hidden rounded-2xl border bg-gradient-to-br ${gradientClass}
-        backdrop-blur-sm p-6 flex flex-col gap-4 transition-transform duration-200
-        hover:scale-[1.02] hover:shadow-lg hover:shadow-black/20
-      `}
-    >
-      {/* Background decoration */}
-      <div className="absolute -top-4 -right-4 w-24 h-24 rounded-full bg-white/5 blur-xl" />
+    <Card className={cn("border-l-4 hover:border-l-[5px] transition-all duration-150", accentBorder[color])}>
+      <CardContent className="p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="section-label mb-2">{title}</p>
+            <p className={cn("font-heading text-3xl font-bold tabular-nums leading-none", valueColor[color])}>
+              {value}
+            </p>
+          </div>
+          <div className={cn("shrink-0 w-8 h-8 flex items-center justify-center", iconColor[color])}>
+            {icon}
+          </div>
+        </div>
 
-      <div className="flex items-start justify-between relative z-10">
-        <div>
-          <p className="text-gray-400 text-sm font-medium">{title}</p>
-          <p className="text-3xl font-bold text-white mt-1 tabular-nums">
-            {value}
-          </p>
-        </div>
-        <div className={`${iconClass} w-10 h-10 flex items-center justify-center rounded-xl bg-white/10`}>
-          {icon}
-        </div>
-      </div>
-
-      {trend && (
-        <div className="flex items-center gap-1.5 relative z-10">
-          <span
-            className={`text-xs font-semibold ${
-              trend.positive ? "text-success-500" : "text-danger-500"
-            }`}
-          >
-            {trend.positive ? "▲" : "▼"} {Math.abs(trend.value)}%
-          </span>
-          <span className="text-gray-500 text-xs">{trend.label}</span>
-        </div>
-      )}
-    </div>
+        {trend && (
+          <div className="flex items-center gap-1.5 mt-4 pt-3 border-t border-border">
+            <span className={cn("font-mono text-xs font-semibold", trend.positive ? "text-emerald-400" : "text-red-400")}>
+              {trend.positive ? "▲" : "▼"} {Math.abs(trend.value)}%
+            </span>
+            <span className="text-muted-foreground text-xs">{trend.label}</span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

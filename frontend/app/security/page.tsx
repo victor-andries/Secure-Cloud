@@ -7,7 +7,7 @@ import {
 import AnomalyBadge from "@/components/AnomalyBadge";
 import { getHealth, getAnomalyLogs } from "@/lib/api";
 import { getAnomalyChartColor } from "@/lib/utils";
-import type { HealthResponse, AccessLog, AnomalyLevel } from "@/types";
+import type { HealthResponse, AccessLog, AnomalyLevel, FileRecord } from "@/types";
 
 interface ModelStatus {
   name: string;
@@ -21,20 +21,49 @@ interface LevelCount {
   fill: string;
 }
 
+const SEC_TABLE_PAGE_SIZE = 20;
+
 export default function SecurityPage() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [anomalyLogs, setAnomalyLogs] = useState<AccessLog[]>([]);
+  // allLogs: full batch for charts; tableLogs: paginated subset for the table
+  const [allLogs, setAllLogs] = useState<AccessLog[]>([]);
+  const [tableLogs, setTableLogs] = useState<AccessLog[]>([]);
+  const [localFiles, setLocalFiles] = useState<FileRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tableLoading, setTableLoading] = useState(false);
+  const [tablePage, setTablePage] = useState(0);
+  const [tableHasMore, setTableHasMore] = useState(false);
+
+  const fetchTablePage = useCallback(async (page: number) => {
+    setTableLoading(true);
+    try {
+      const res = await getAnomalyLogs(page, SEC_TABLE_PAGE_SIZE);
+      const logs = res.anomalies ?? [];
+      setTableLogs(logs);
+      setTableHasMore(logs.length === SEC_TABLE_PAGE_SIZE);
+    } catch (err) {
+      console.error("Security table fetch error:", err);
+    } finally {
+      setTableLoading(false);
+    }
+  }, []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const [healthRes, logsRes] = await Promise.allSettled([
         getHealth(),
-        getAnomalyLogs(0, 200)
+        getAnomalyLogs(0, 200)         // large batch for charts
       ]);
       if (healthRes.status === "fulfilled") setHealth(healthRes.value);
-      if (logsRes.status === "fulfilled") setAnomalyLogs(logsRes.value.anomalies ?? []);
+      if (logsRes.status === "fulfilled") {
+        const logs = logsRes.value.anomalies ?? [];
+        setAllLogs(logs);
+        // first page of table = first SEC_TABLE_PAGE_SIZE entries
+        setTableLogs(logs.slice(0, SEC_TABLE_PAGE_SIZE));
+        setTableHasMore(logs.length > SEC_TABLE_PAGE_SIZE);
+        setTablePage(0);
+      }
     } catch (err) {
       console.error("Security data fetch error:", err);
     } finally {
@@ -48,23 +77,51 @@ export default function SecurityPage() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
+  useEffect(() => {
+    const stored = JSON.parse(localStorage.getItem("uploadedFiles") ?? "[]") as FileRecord[];
+    setLocalFiles(stored);
+  }, []);
+
+  const handleTablePage = (newPage: number) => {
+    if (newPage < 0) return;
+    // If within the cached allLogs batch, use client-side slice
+    const start = newPage * SEC_TABLE_PAGE_SIZE;
+    if (start < allLogs.length) {
+      const slice = allLogs.slice(start, start + SEC_TABLE_PAGE_SIZE);
+      setTableLogs(slice);
+      setTableHasMore(start + SEC_TABLE_PAGE_SIZE < allLogs.length || allLogs.length === 200);
+      setTablePage(newPage);
+    } else if (newPage > tablePage && tableHasMore) {
+      // Beyond the cached batch: go to server
+      setTablePage(newPage);
+      fetchTablePage(newPage);
+    }
+  };
+
   // Derive model statuses from health detail
   const aiDetail = health?.services?.ai_detection?.detail as Record<string, unknown> | undefined;
   const modelStatusObj = aiDetail?.model_status as Record<string, boolean> | undefined;
   const models: ModelStatus[] = [
-    { name: "Autoencoder", loaded: modelStatusObj?.autoencoder ?? false, type: "Deep Learning" },
-    { name: "BiLSTM", loaded: modelStatusObj?.bilstm ?? false, type: "Recurrent Network" },
     { name: "Isolation Forest", loaded: modelStatusObj?.isolation_forest ?? false, type: "Ensemble" },
-    { name: "Random Forest", loaded: modelStatusObj?.random_forest ?? false, type: "Ensemble" }
+    { name: "Random Forest",    loaded: modelStatusObj?.random_forest    ?? false, type: "Ensemble" },
   ];
 
-  // Build level distribution from logs
+  // NORMAL/MEDIUM are never in the anomaly log (anomaly_flag=false by design).
+  // Use localStorage for those, anomaly logs for HIGH/CRITICAL (covers downloads too).
   const levelCounts: Record<AnomalyLevel, number> = {
     NORMAL: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0
   };
-  for (const log of anomalyLogs) {
-    const level: AnomalyLevel = log.anomalyFlag ? "HIGH" : "NORMAL";
-    levelCounts[level] = (levelCounts[level] ?? 0) + 1;
+  for (const file of localFiles) {
+    const level = (file.aiLevel as AnomalyLevel) ?? "NORMAL";
+    if (level === "NORMAL" || level === "MEDIUM") {
+      levelCounts[level] += 1;
+    }
+  }
+  for (const log of allLogs) {
+    const level: AnomalyLevel = log.anomalyLevel ?? (log.anomalyFlag ? "HIGH" : "NORMAL");
+    if (level === "HIGH" || level === "CRITICAL") {
+      levelCounts[level] += 1;
+    }
   }
 
   const chartData: LevelCount[] = (["NORMAL", "MEDIUM", "HIGH", "CRITICAL"] as AnomalyLevel[]).map((level) => ({
@@ -75,19 +132,17 @@ export default function SecurityPage() {
 
   // Action distribution
   const actionCounts: Record<string, number> = {};
-  for (const log of anomalyLogs) {
+  for (const log of allLogs) {
     actionCounts[log.action] = (actionCounts[log.action] ?? 0) + 1;
   }
   const actionData = Object.entries(actionCounts)
     .map(([action, count]) => ({ action, count }))
     .sort((a, b) => b.count - a.count);
 
-  // Ensemble weights display
+  // Ensemble weights display (rescaled to the two active models)
   const weights = [
-    { model: "BiLSTM", weight: 0.30, color: "bg-warning-500" },
-    { model: "Random Forest", weight: 0.30, color: "bg-success-500" },
-    { model: "Autoencoder", weight: 0.20, color: "bg-primary-500" },
-    { model: "Isolation Forest", weight: 0.20, color: "bg-secondary-500" }
+    { model: "Random Forest",    weight: 0.60, color: "bg-success-500"   },
+    { model: "Isolation Forest", weight: 0.40, color: "bg-secondary-500" },
   ];
 
   return (
@@ -185,11 +240,13 @@ export default function SecurityPage() {
                 />
                 <Tooltip
                   contentStyle={{
-                    background: "#1a1a2e",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: "12px",
-                    color: "#e5e7eb"
+                    background: "#0f1117",
+                    border: "1px solid #1e2030",
+                    borderRadius: "4px",
+                    color: "#e4e4e8"
                   }}
+                  labelStyle={{ color: "#e4e4e8" }}
+                  itemStyle={{ color: "#fbbf24" }}
                   cursor={{ fill: "rgba(255,255,255,0.03)" }}
                 />
                 <Bar dataKey="count" radius={[6, 6, 0, 0]}>
@@ -222,11 +279,13 @@ export default function SecurityPage() {
                 />
                 <Tooltip
                   contentStyle={{
-                    background: "#1a1a2e",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: "12px",
-                    color: "#e5e7eb"
+                    background: "#0f1117",
+                    border: "1px solid #1e2030",
+                    borderRadius: "4px",
+                    color: "#e4e4e8"
                   }}
+                  labelStyle={{ color: "#e4e4e8" }}
+                  itemStyle={{ color: "#fbbf24" }}
                   cursor={{ fill: "rgba(255,255,255,0.03)" }}
                 />
                 <Bar dataKey="count" fill="#6366f1" radius={[0, 6, 6, 0]} />
@@ -238,8 +297,14 @@ export default function SecurityPage() {
 
       {/* Recent Anomalies table */}
       <div className="glass rounded-2xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-white/5">
-          <h2 className="text-white font-semibold">Recent Anomalous Events</h2>
+        <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between">
+          <div>
+            <h2 className="text-white font-semibold">Recent Anomalous Events</h2>
+            <p className="text-gray-500 text-xs mt-0.5">{allLogs.length} events loaded</p>
+          </div>
+          {tableLoading && (
+            <div className="w-4 h-4 border-2 border-primary-400/30 border-t-primary-400 rounded-full animate-spin" />
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -253,15 +318,15 @@ export default function SecurityPage() {
               </tr>
             </thead>
             <tbody>
-              {anomalyLogs.slice(0, 10).length === 0 ? (
+              {tableLogs.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center text-gray-600">
                     {loading ? "Loading..." : "No anomaly events recorded"}
                   </td>
                 </tr>
               ) : (
-                anomalyLogs.slice(0, 10).map((log, idx) => {
-                  const level: AnomalyLevel = log.anomalyFlag ? "HIGH" : "NORMAL";
+                tableLogs.map((log, idx) => {
+                  const level: AnomalyLevel = log.anomalyLevel ?? (log.anomalyFlag ? "HIGH" : "NORMAL");
                   return (
                     <tr key={idx} className="border-t border-white/5">
                       <td className="px-6 py-3 text-gray-400 text-xs whitespace-nowrap">
@@ -283,6 +348,36 @@ export default function SecurityPage() {
               )}
             </tbody>
           </table>
+        </div>
+        {/* Pagination */}
+        <div className="flex items-center justify-between px-6 py-3 border-t border-white/5">
+          <span className="text-gray-500 text-xs font-mono">
+            Page {tablePage + 1} · showing {tableLogs.length} events
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => handleTablePage(tablePage - 1)}
+              disabled={tablePage === 0}
+              className={`px-3 py-1 text-xs rounded border transition-colors ${
+                tablePage === 0
+                  ? "border-white/10 text-gray-600 cursor-not-allowed"
+                  : "border-white/20 text-gray-400 hover:border-primary-400 hover:text-primary-400"
+              }`}
+            >
+              ← Prev
+            </button>
+            <button
+              onClick={() => handleTablePage(tablePage + 1)}
+              disabled={!tableHasMore}
+              className={`px-3 py-1 text-xs rounded border transition-colors ${
+                !tableHasMore
+                  ? "border-white/10 text-gray-600 cursor-not-allowed"
+                  : "border-white/20 text-gray-400 hover:border-primary-400 hover:text-primary-400"
+              }`}
+            >
+              Next →
+            </button>
+          </div>
         </div>
       </div>
     </div>

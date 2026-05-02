@@ -4,8 +4,10 @@ import { useState, useCallback } from "react";
 import { useAccount } from "wagmi";
 import UploadZone from "@/components/UploadZone";
 import AnomalyBadge from "@/components/AnomalyBadge";
+import { Card, CardContent } from "@/components/ui/card";
 import { uploadFile } from "@/lib/api";
 import { formatBytes, truncateAddress } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import type { UploadResponse, AnomalyLevel, FileRecord } from "@/types";
 
 export default function UploadPage() {
@@ -31,11 +33,11 @@ export default function UploadPage() {
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file) { setError("Please select a file."); return; }
-    if (file.size === 0) { setError("The selected file is empty (0 bytes). Please choose a file with content."); return; }
-    if (!password) { setError("Please enter an encryption password."); return; }
-    if (password !== confirmPassword) { setError("Passwords do not match."); return; }
-    if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
+    if (!file)                          { setError("Please select a file."); return; }
+    if (file.size === 0)                { setError("The selected file is empty."); return; }
+    if (!password)                      { setError("Please enter an encryption password."); return; }
+    if (password !== confirmPassword)   { setError("Passwords do not match."); return; }
+    if (password.length < 8)           { setError("Password must be at least 8 characters."); return; }
 
     setUploading(true);
     setError(null);
@@ -51,7 +53,6 @@ export default function UploadPage() {
       const response = await uploadFile(formData);
       setProgress(90);
 
-      // Persist to localStorage for file list
       const existing = JSON.parse(localStorage.getItem("uploadedFiles") ?? "[]") as FileRecord[];
       const newRecord: FileRecord = {
         fileId: response.fileId,
@@ -64,7 +65,7 @@ export default function UploadPage() {
         txHash: response.txHash ?? undefined,
         aiScore: response.aiScore,
         aiLevel: response.aiLevel,
-        numChunks: response.numChunks
+        numChunks: response.numChunks,
       };
       localStorage.setItem("uploadedFiles", JSON.stringify([newRecord, ...existing]));
 
@@ -81,97 +82,119 @@ export default function UploadPage() {
     }
   }, [file, password, confirmPassword, address]);
 
+  const pwMatch = confirmPassword.length > 0 && password === confirmPassword;
+  const pwMismatch = confirmPassword.length > 0 && password !== confirmPassword;
+
   return (
     <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+      {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-white">
-          Secure <span className="text-gradient">Upload</span>
+        <div className="flex items-center gap-3 mb-3">
+          <span className="section-label">Secure Storage</span>
+          <div className="flex-1 h-px bg-border" />
+        </div>
+        <h1 className="font-heading text-4xl font-bold tracking-tight">
+          Secure <span className="text-primary">Upload</span>
         </h1>
-        <p className="text-gray-400 mt-1">
-          Files are chunked, AES-256-GCM encrypted, and registered on-chain
+        <p className="text-muted-foreground mt-2 text-sm">
+          Files are chunked, encrypted, and registered on-chain
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-6">
-        {/* Upload Zone */}
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+
+        {/* Drop zone */}
         <UploadZone
           onFileSelect={handleFileSelect}
           selectedFile={file}
           disabled={uploading}
         />
 
-        {/* Password fields */}
-        <div className="glass rounded-2xl p-6 flex flex-col gap-4">
-          <h2 className="text-white font-semibold text-sm uppercase tracking-wide">
-            Encryption Password
-          </h2>
+        {/* Password card */}
+        <Card>
+          <CardContent className="p-6 flex flex-col gap-4">
+            <div className="flex items-center gap-3">
+              <span className="section-label">Encryption Password</span>
+              <div className="flex-1 h-px bg-border" />
+            </div>
 
-          <div>
-            <label className="block text-sm text-gray-400 mb-1.5" htmlFor="password">
-              Password <span className="text-danger-500">*</span>
-            </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Min. 8 characters"
-              disabled={uploading}
-              className="
-                w-full px-4 py-2.5 rounded-xl text-sm
-                bg-white/5 border border-white/10
-                text-white placeholder-gray-600
-                focus:outline-none focus:border-primary-500/60 focus:bg-white/8
-                disabled:opacity-50 transition-colors
-              "
-            />
-          </div>
+            {/* Password */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm text-muted-foreground" htmlFor="password">
+                Password <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Min. 8 characters"
+                disabled={uploading}
+                className={cn(
+                  "w-full px-3 py-2.5 text-sm bg-muted border text-foreground placeholder-muted-foreground",
+                  "focus:outline-none focus:border-primary/60 transition-colors disabled:opacity-50",
+                  "font-mono rounded-sm",
+                  password.length > 0 && password.length < 8 ? "border-red-500/50" : "border-border"
+                )}
+              />
+              {password.length > 0 && password.length < 8 && (
+                <p className="font-mono text-xs text-red-400">Too short — minimum 8 characters</p>
+              )}
+            </div>
 
-          <div>
-            <label className="block text-sm text-gray-400 mb-1.5" htmlFor="confirm-password">
-              Confirm Password <span className="text-danger-500">*</span>
-            </label>
-            <input
-              id="confirm-password"
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Repeat your password"
-              disabled={uploading}
-              className="
-                w-full px-4 py-2.5 rounded-xl text-sm
-                bg-white/5 border border-white/10
-                text-white placeholder-gray-600
-                focus:outline-none focus:border-primary-500/60 focus:bg-white/8
-                disabled:opacity-50 transition-colors
-              "
-            />
-          </div>
-        </div>
+            {/* Confirm password */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm text-muted-foreground" htmlFor="confirm-password">
+                Confirm Password <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="confirm-password"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Repeat your password"
+                disabled={uploading}
+                className={cn(
+                  "w-full px-3 py-2.5 text-sm bg-muted border text-foreground placeholder-muted-foreground",
+                  "focus:outline-none focus:border-primary/60 transition-colors disabled:opacity-50",
+                  "font-mono rounded-sm",
+                  pwMismatch ? "border-red-500/50" : pwMatch ? "border-emerald-500/50" : "border-border"
+                )}
+              />
+              {pwMismatch && (
+                <p className="font-mono text-xs text-red-400">Passwords do not match</p>
+              )}
+              {pwMatch && (
+                <p className="font-mono text-xs text-emerald-400">Passwords match</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Wallet warning */}
         {!address && (
-          <div className="flex items-center gap-3 p-4 rounded-xl bg-warning-500/10 border border-warning-500/20">
-            <svg className="w-5 h-5 text-warning-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="flex items-start gap-3 p-4 border border-amber-500/20 bg-amber-500/5">
+            <svg className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
-            <p className="text-warning-400 text-sm">
+            <p className="text-amber-400 text-sm">
               Connect your wallet to register the file on the blockchain.
             </p>
           </div>
         )}
 
-        {/* Progress bar */}
+        {/* Progress */}
         {uploading && (
           <div className="flex flex-col gap-2">
-            <div className="flex justify-between text-xs text-gray-400">
-              <span>Encrypting & uploading...</span>
-              <span>{progress}%</span>
+            <div className="flex justify-between items-center">
+              <span className="font-mono text-xs text-muted-foreground">Encrypting & uploading…</span>
+              <span className="font-mono text-xs text-primary">{progress}%</span>
             </div>
-            <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+            <div className="h-1 bg-muted overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-primary-600 to-secondary-500 rounded-full transition-all duration-500"
+                className="h-full bg-primary transition-all duration-500"
                 style={{ width: `${progress}%` }}
               />
             </div>
@@ -180,12 +203,12 @@ export default function UploadPage() {
 
         {/* Error */}
         {error && (
-          <div className="flex items-center gap-3 p-4 rounded-xl bg-danger-500/10 border border-danger-500/20">
-            <svg className="w-5 h-5 text-danger-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="flex items-start gap-3 p-4 border border-red-500/20 bg-red-500/5">
+            <svg className="w-4 h-4 text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <p className="text-danger-400 text-sm">{error}</p>
+            <p className="text-red-400 text-sm">{error}</p>
           </div>
         )}
 
@@ -193,53 +216,55 @@ export default function UploadPage() {
         <button
           type="submit"
           disabled={uploading || !file}
-          className="
-            w-full py-3 rounded-xl text-sm font-semibold
-            bg-primary-600 hover:bg-primary-500
-            disabled:opacity-40 disabled:cursor-not-allowed
-            text-white transition-all duration-200
-            shadow-lg shadow-primary-500/20 hover:shadow-primary-500/40
-          "
+          className={cn(
+            "w-full py-3 text-sm font-heading font-semibold tracking-wide transition-all duration-200",
+            "bg-primary text-primary-foreground hover:bg-primary/90",
+            "disabled:opacity-30 disabled:cursor-not-allowed"
+          )}
         >
-          {uploading ? "Uploading..." : "Encrypt & Upload"}
+          {uploading ? "Uploading…" : "Encrypt & Upload"}
         </button>
       </form>
 
       {/* Success result */}
       {result && (
-        <div className="mt-6 glass rounded-2xl p-6 border border-success-500/20 bg-success-500/5">
-          <div className="flex items-center gap-2 mb-4">
-            <svg className="w-5 h-5 text-success-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <h3 className="text-success-400 font-semibold">Upload Successful</h3>
-          </div>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <p className="text-gray-500 text-xs uppercase font-medium mb-0.5">File ID</p>
-              <p className="text-gray-200 font-mono text-xs truncate">{result.fileId}</p>
-            </div>
-            <div>
-              <p className="text-gray-500 text-xs uppercase font-medium mb-0.5">Size</p>
-              <p className="text-gray-200">{formatBytes(result.fileSize)}</p>
-            </div>
-            <div>
-              <p className="text-gray-500 text-xs uppercase font-medium mb-0.5">Chunks</p>
-              <p className="text-gray-200">{result.numChunks}</p>
-            </div>
-            <div>
-              <p className="text-gray-500 text-xs uppercase font-medium mb-0.5">AI Score</p>
-              <AnomalyBadge level={(result.aiLevel as AnomalyLevel) ?? "NORMAL"} score={result.aiScore} />
-            </div>
-            {result.txHash && (
-              <div className="col-span-2">
-                <p className="text-gray-500 text-xs uppercase font-medium mb-0.5">TX Hash</p>
-                <p className="text-primary-400 font-mono text-xs truncate">{result.txHash}</p>
+        <Card className="mt-6 border-emerald-500/20 bg-emerald-500/[0.03]">
+          <CardContent className="p-6">
+            <div className="flex items-center gap-2 mb-5">
+              <div className="w-5 h-5 flex items-center justify-center text-emerald-400">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
               </div>
-            )}
-          </div>
-        </div>
+              <h3 className="font-heading font-semibold text-emerald-400">Upload Successful</h3>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              {[
+                { label: "File ID",  value: result.fileId,                mono: true  },
+                { label: "Size",     value: formatBytes(result.fileSize), mono: false },
+                { label: "Chunks",   value: String(result.numChunks),    mono: false },
+              ].map(({ label, value, mono }) => (
+                <div key={label}>
+                  <p className="section-label mb-1">{label}</p>
+                  <p className={cn("text-sm text-foreground truncate", mono && "font-mono text-xs")}>{value}</p>
+                </div>
+              ))}
+
+              <div>
+                <p className="section-label mb-1">AI Score</p>
+                <AnomalyBadge level={(result.aiLevel as AnomalyLevel) ?? "NORMAL"} score={result.aiScore} />
+              </div>
+
+              {result.txHash && (
+                <div className="col-span-2">
+                  <p className="section-label mb-1">TX Hash</p>
+                  <p className="font-mono text-xs text-primary truncate">{result.txHash}</p>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

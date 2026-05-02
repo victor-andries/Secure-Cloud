@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { formatBytes } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 interface UploadZoneProps {
   onFileSelect: (file: File) => void;
@@ -46,24 +47,17 @@ export default function UploadZone({ onFileSelect, selectedFile, disabled = fals
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={`
-        relative rounded-2xl border-2 border-dashed p-10
-        flex flex-col items-center justify-center gap-4
-        transition-all duration-300 cursor-pointer
-        ${disabled
-          ? "opacity-50 cursor-not-allowed border-gray-700 bg-gray-900/20"
+      onClick={() => { if (!disabled) document.getElementById("file-input")?.click(); }}
+      className={cn(
+        "relative border-2 border-dashed p-12 flex flex-col items-center justify-center gap-4 transition-all duration-200 cursor-pointer select-none",
+        disabled
+          ? "opacity-40 cursor-not-allowed border-border bg-card"
           : isDragging
-            ? "border-primary-500 bg-primary-500/10 scale-[1.01]"
+            ? "border-primary bg-primary/5"
             : selectedFile
-              ? "border-success-500/60 bg-success-500/5"
-              : "border-gray-700 hover:border-primary-500/60 hover:bg-primary-500/5 bg-white/[0.02]"
-        }
-      `}
-      onClick={() => {
-        if (!disabled) {
-          document.getElementById("file-input")?.click();
-        }
-      }}
+              ? "border-emerald-500/50 bg-emerald-500/5"
+              : "border-border bg-card hover:border-primary/40 hover:bg-primary/[0.03]"
+      )}
     >
       <input
         id="file-input"
@@ -75,15 +69,14 @@ export default function UploadZone({ onFileSelect, selectedFile, disabled = fals
 
       {selectedFile ? (
         <>
-          <div className="w-16 h-16 rounded-2xl bg-success-500/20 border border-success-500/30 flex items-center justify-center">
-            <svg className="w-8 h-8 text-success-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <div className="w-14 h-14 flex items-center justify-center border border-emerald-500/40 text-emerald-400 bg-emerald-500/10">
+            <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
           <div className="text-center">
-            <p className="text-white font-semibold text-lg">{selectedFile.name}</p>
-            <p className="text-gray-400 text-sm mt-1">{formatBytes(selectedFile.size)}</p>
+            <p className="font-heading text-lg font-semibold text-foreground">{selectedFile.name}</p>
+            <p className="font-mono text-sm text-muted-foreground mt-1">{formatBytes(selectedFile.size)}</p>
           </div>
           <button
             type="button"
@@ -93,35 +86,34 @@ export default function UploadZone({ onFileSelect, selectedFile, disabled = fals
               if (input) input.value = "";
               onFileSelect(new File([], ""));
             }}
-            className="text-xs text-gray-500 hover:text-gray-300 underline transition-colors"
+            className="font-mono text-xs text-muted-foreground hover:text-primary underline transition-colors"
           >
-            Change file
+            change file
           </button>
         </>
       ) : (
         <>
-          <div className={`
-            w-16 h-16 rounded-2xl border flex items-center justify-center transition-colors
-            ${isDragging
-              ? "bg-primary-500/20 border-primary-500/40 text-primary-400"
-              : "bg-white/5 border-white/10 text-gray-500"
-            }
-          `}>
-            <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+          <div className={cn(
+            "w-14 h-14 flex items-center justify-center border transition-colors",
+            isDragging
+              ? "border-primary/60 bg-primary/10 text-primary"
+              : "border-border bg-muted text-muted-foreground"
+          )}>
+            <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round"
                 d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
           </div>
           <div className="text-center">
-            <p className="text-white font-medium">
+            <p className="font-heading font-semibold text-foreground">
               {isDragging ? "Drop your file here" : "Drag & drop a file here"}
             </p>
-            <p className="text-gray-500 text-sm mt-1">
-              or <span className="text-primary-400 hover:text-primary-300">browse files</span>
+            <p className="text-muted-foreground text-sm mt-1">
+              or <span className="text-primary">browse files</span>
             </p>
           </div>
-          <p className="text-xs text-gray-600">
-            Files are split into 10MB chunks and encrypted with AES-256-GCM
+          <p className="font-mono text-xs text-muted-foreground/60">
+            Files are split into 10MB chunks and encrypted
           </p>
         </>
       )}
