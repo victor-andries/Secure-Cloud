@@ -7,6 +7,7 @@ import json
 import struct
 import time
 import logging
+import threading
 import numpy as np
 import redis
 from flask import Flask, request, jsonify
@@ -21,16 +22,19 @@ logger = logging.getLogger("ai_detection_service")
 app = Flask(__name__)
 CORS(app)
 
-MODEL_DIR  = os.getenv("MODEL_DIR",  "models")
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_HOST = os.environ["REDIS_HOST"]
+REDIS_PORT = int(os.environ["REDIS_PORT"])
 
-isolation_forest = None
-random_forest    = None
-scaler           = None
-models_loaded    = False
-feature_names: list = []
-N_FEATURES: int = 12
+pyod_detector       = None
+models_loaded       = False
+_detector_lock      = threading.Lock()
+_events_since_refit = 0
+N_FEATURES: int     = 12
+
+REDIS_FEAT_KEY  = "ai:feature_buffer"
+BUFFER_MAXLEN   = 2000
+MIN_FIT_SAMPLES = 50
+REFIT_EVERY     = 100
 
 redis_client = None
 
@@ -41,13 +45,6 @@ THRESHOLDS = {
     "NORMAL":   0.0,
 }
 
-# IF is unsupervised (catches unknown patterns), RF is supervised (high accuracy).
-WEIGHTS = {
-    "isolation_forest": 0.40,
-    "random_forest":    0.60,
-}
-
-# These 12 features must stay in sync with train_behavioral_models.py.
 BEHAVIORAL_FEATURES = [
     "hour_of_day",
     "day_of_week",
@@ -64,38 +61,56 @@ BEHAVIORAL_FEATURES = [
 ]
 
 
-def load_models() -> None:
-    """Load all ML models from MODEL_DIR."""
-    global isolation_forest, random_forest, scaler
-    global models_loaded, feature_names, N_FEATURES
+def _store_feature(features: np.ndarray) -> int:
+    """Append one feature vector to the Redis circular buffer. Returns current size."""
+    if not redis_client:
+        return 0
     try:
-        import joblib
+        redis_client.rpush(REDIS_FEAT_KEY, json.dumps(features.tolist()))
+        redis_client.ltrim(REDIS_FEAT_KEY, -BUFFER_MAXLEN, -1)
+        return redis_client.llen(REDIS_FEAT_KEY)
+    except Exception:
+        return 0
 
-        if_path = os.path.join(MODEL_DIR, "isolation_forest.pkl")
-        rf_path = os.path.join(MODEL_DIR, "random_forest.pkl")
-        sc_path = os.path.join(MODEL_DIR, "scaler.pkl")
 
-        if os.path.exists(if_path):
-            isolation_forest = joblib.load(if_path)
-            logger.info("Isolation Forest loaded")
-        if os.path.exists(rf_path):
-            random_forest = joblib.load(rf_path)
-            logger.info("Random Forest loaded")
-        if os.path.exists(sc_path):
-            scaler = joblib.load(sc_path)
-            logger.info("Scaler loaded")
+def _load_buffer() -> np.ndarray | None:
+    """Return feature matrix from Redis buffer, or None if too few samples."""
+    if not redis_client:
+        return None
+    try:
+        raw = redis_client.lrange(REDIS_FEAT_KEY, 0, -1)
+        if len(raw) < MIN_FIT_SAMPLES:
+            return None
+        return np.array([json.loads(r) for r in raw], dtype=np.float32)
+    except Exception:
+        return None
 
-        fn_path = os.path.join(MODEL_DIR, "feature_names.json")
-        if os.path.exists(fn_path):
-            with open(fn_path) as f:
-                feature_names = json.load(f)
-            N_FEATURES = len(feature_names)
-            logger.info(f"Feature names loaded: {N_FEATURES} features")
 
-        models_loaded = all([isolation_forest, random_forest, scaler])
-        logger.info(f"Model loading complete. All models loaded: {models_loaded}")
+def _fit_detector(X: np.ndarray) -> None:
+    """Fit ECOD on X and atomically swap the global detector."""
+    global pyod_detector, models_loaded
+    try:
+        from pyod.models.ecod import ECOD
+        clf = ECOD(contamination=0.05)
+        clf.fit(X)
+        with _detector_lock:
+            pyod_detector = clf
+            models_loaded = True
+        logger.info(f"ECOD fitted on {len(X)} samples (threshold={clf.threshold_:.4f})")
     except Exception as exc:
-        logger.error(f"Failed to load models: {exc}", exc_info=True)
+        logger.error(f"ECOD fit failed: {exc}", exc_info=True)
+
+
+def load_models() -> None:
+    """Fit detector on any feature vectors already in Redis (warm restart)."""
+    X = _load_buffer()
+    if X is not None:
+        _fit_detector(X)
+    else:
+        logger.info(
+            f"Feature buffer has fewer than {MIN_FIT_SAMPLES} samples — "
+            "detector will fit automatically once enough events arrive."
+        )
 
 
 def connect_redis() -> None:
@@ -722,33 +737,40 @@ def extract_features(event_data: dict) -> np.ndarray:
 # Model inference helpers
 # ---------------------------------------------------------------------------
 
-def _scale(features: np.ndarray) -> np.ndarray:
-    """Scale features and clip to ±3σ."""
-    scaled = scaler.transform(features.reshape(1, -1))
-    return np.clip(scaled, -3.0, 3.0).astype(np.float32)
+def run_pyod_detector(features: np.ndarray) -> float:
+    """Score one event; also handles buffer growth and async refitting."""
+    global _events_since_refit
 
+    buf_size = _store_feature(features)
 
-def run_isolation_forest(features: np.ndarray) -> float:
-    if not isolation_forest or not scaler:
-        return 0.0
+    _events_since_refit += 1
+    if _events_since_refit >= REFIT_EVERY and buf_size >= MIN_FIT_SAMPLES:
+        _events_since_refit = 0
+        X = _load_buffer()
+        if X is not None:
+            threading.Thread(target=_fit_detector, args=(X,), daemon=True).start()
+
+    with _detector_lock:
+        clf = pyod_detector
+
+    if clf is None:
+        if buf_size >= MIN_FIT_SAMPLES:
+            X = _load_buffer()
+            if X is not None:
+                _fit_detector(X)
+                with _detector_lock:
+                    clf = pyod_detector
+        if clf is None:
+            return 0.0
+
     try:
-        scaled = _scale(features)
-        score  = isolation_forest.score_samples(scaled)[0]
-        return float(max(0.0, min(1.0, (-score - 0.1) / 0.9)))
+        score  = float(clf.decision_function(features.reshape(1, -1))[0])
+        scores = clf.decision_scores_
+        p_lo   = float(np.percentile(scores, 2))
+        p_hi   = float(np.percentile(scores, 98))
+        return float(max(0.0, min(1.0, (score - p_lo) / (p_hi - p_lo + 1e-9))))
     except Exception as exc:
-        logger.warning(f"Isolation Forest inference failed: {exc}")
-        return 0.0
-
-
-def run_random_forest(features: np.ndarray) -> float:
-    if not random_forest or not scaler:
-        return 0.0
-    try:
-        scaled = _scale(features)
-        proba  = random_forest.predict_proba(scaled)[0]
-        return float(proba[1]) if len(proba) > 1 else 0.0
-    except Exception as exc:
-        logger.warning(f"Random Forest inference failed: {exc}")
+        logger.warning(f"ECOD inference failed: {exc}")
         return 0.0
 
 
@@ -760,13 +782,6 @@ def classify_score(score: float) -> str:
     elif score >= THRESHOLDS["MEDIUM"]:
         return "MEDIUM"
     return "NORMAL"
-
-
-def _compute_ensemble(iso: float, rf: float) -> float:
-    return (
-        WEIGHTS["isolation_forest"] * iso +
-        WEIGHTS["random_forest"]    * rf
-    )
 
 
 def _persist_event(user_id: str, timestamp: float, ensemble_score: float,
@@ -833,10 +848,9 @@ def scan_file() -> tuple:
         content_score = layer1["content_risk_score"]
 
         # Layer 2: behavioural risk
-        features   = extract_features(body)
-        if_score   = run_isolation_forest(features)
-        rf_score   = run_random_forest(features)
-        behavioral = _compute_ensemble(if_score, rf_score)
+        features    = extract_features(body)
+        pyod_score  = run_pyod_detector(features)
+        behavioral  = pyod_score
 
         # Combined scoring:
         # - Content dominates (0.85/0.15) when static analysis identified a specific,
@@ -864,8 +878,7 @@ def scan_file() -> tuple:
 
         logger.info(
             f"Scan '{filename}' — L1:{content_score:.4f} | "
-            f"L2(IF:{if_score:.4f} RF:{rf_score:.4f}) "
-            f"behav:{behavioral:.4f} | Final:{ensemble_score:.4f}"
+            f"L2(ECOD:{pyod_score:.4f}) behav:{behavioral:.4f} | Final:{ensemble_score:.4f}"
         )
 
         level = classify_score(ensemble_score)
@@ -883,13 +896,11 @@ def scan_file() -> tuple:
             "layer2": {
                 "behavioral_score": round(behavioral, 4),
                 "model_scores": {
-                    "isolation_forest": round(if_score, 4),
-                    "random_forest":    round(rf_score, 4),
+                    "ecod": round(pyod_score, 4),
                 },
             },
             "model_scores": {
-                "isolation_forest": round(if_score, 4),
-                "random_forest":    round(rf_score, 4),
+                "ecod": round(pyod_score, 4),
             },
         }), 200
 
@@ -912,13 +923,11 @@ def detect_anomaly() -> tuple:
         user_id   = body.get("user_id",   "unknown")
         timestamp = body.get("timestamp", time.time())
 
-        features   = extract_features(body)
-        if_score   = run_isolation_forest(features)
-        rf_score   = run_random_forest(features)
-
-        ensemble_score = _compute_ensemble(if_score, rf_score)
+        features       = extract_features(body)
+        pyod_score     = run_pyod_detector(features)
+        ensemble_score = pyod_score
         logger.info(
-            f"Detect — IF:{if_score:.4f} RF:{rf_score:.4f} | Ensemble:{ensemble_score:.4f}"
+            f"Detect — ECOD:{pyod_score:.4f} | Ensemble:{ensemble_score:.4f}"
         )
 
         level = classify_score(ensemble_score)
@@ -934,8 +943,7 @@ def detect_anomaly() -> tuple:
             "recommended_action": action_map[level],
             "is_anomalous":       level != "NORMAL",
             "model_scores": {
-                "isolation_forest": round(if_score, 4),
-                "random_forest":    round(rf_score, 4),
+                "ecod": round(pyod_score, 4),
             },
             "features": {k: round(v, 4) for k, v in feat_dict.items()},
         }), 200
@@ -1000,15 +1008,22 @@ def health() -> tuple:
         except Exception:
             pass
 
+    buf_size = 0
+    if redis_client:
+        try:
+            buf_size = redis_client.llen(REDIS_FEAT_KEY)
+        except Exception:
+            pass
+
     return jsonify({
         "status":        "ok",
         "service":       "ai_detection",
         "models_loaded": models_loaded,
         "model_status": {
-            "isolation_forest": isolation_forest is not None,
-            "random_forest":    random_forest    is not None,
-            "scaler":           scaler           is not None,
+            "ecod": pyod_detector is not None,
         },
+        "buffer_size":     buf_size,
+        "min_fit_samples": MIN_FIT_SAMPLES,
         "redis_connected": redis_ok,
         "n_features":      N_FEATURES,
     }), 200

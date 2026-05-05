@@ -32,11 +32,11 @@ export default function AnomalyBadge({ level, score }: AnomalyBadgeProps) {
   const s = styles[level] ?? fallback;
 
   return (
-    <span className={cn("inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm font-mono text-xs font-semibold", s.badge)}>
+    <span className={cn("inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm font-mono text-xs font-semibold whitespace-nowrap", s.badge)}>
       <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", s.dot)} />
       {level}
       {score !== undefined && (
-        <span className="opacity-60 font-normal">· {formatScore(score)}</span>
+        <span className="opacity-60 font-normal">{formatScore(score)}</span>
       )}
     </span>
   );

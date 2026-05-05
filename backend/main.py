@@ -23,9 +23,7 @@ STORAGE_URL    = os.getenv("STORAGE_URL",    "")
 BLOCKCHAIN_URL = os.getenv("BLOCKCHAIN_URL", "")
 AI_URL         = os.getenv("AI_URL",         "")
 SANDBOX_URL    = os.getenv("SANDBOX_URL",    "")
-# Public-facing base URL used in blockchain references for large files.
-# Falls back to localhost if not set (fine for local dev/demo).
-GATEWAY_PUBLIC_URL = os.getenv("GATEWAY_PUBLIC_URL", "http://localhost:5000")
+GATEWAY_PUBLIC_URL = os.getenv("GATEWAY_PUBLIC_URL")
 REQUEST_TIMEOUT = 60
 
 # File extensions that warrant dynamic sandbox execution

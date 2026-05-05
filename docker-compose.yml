@@ -91,14 +91,11 @@ services:
       - ./backend/.env
     environment:
       REDIS_HOST: redis
-      MODEL_DIR: /app/models
     ports:
       - "5003:5003"
     depends_on:
       redis:
         condition: service_healthy
-    volumes:
-      - ./backend/models:/app/models:ro
     restart: unless-stopped
     networks:
       - scp-net

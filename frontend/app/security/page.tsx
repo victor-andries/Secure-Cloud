@@ -102,8 +102,7 @@ export default function SecurityPage() {
   const aiDetail = health?.services?.ai_detection?.detail as Record<string, unknown> | undefined;
   const modelStatusObj = aiDetail?.model_status as Record<string, boolean> | undefined;
   const models: ModelStatus[] = [
-    { name: "Isolation Forest", loaded: modelStatusObj?.isolation_forest ?? false, type: "Ensemble" },
-    { name: "Random Forest",    loaded: modelStatusObj?.random_forest    ?? false, type: "Ensemble" },
+    { name: "ECOD (PyOD)", loaded: modelStatusObj?.ecod ?? false, type: "Unsupervised" },
   ];
 
   // NORMAL/MEDIUM are never in the anomaly log (anomaly_flag=false by design).
@@ -139,10 +138,8 @@ export default function SecurityPage() {
     .map(([action, count]) => ({ action, count }))
     .sort((a, b) => b.count - a.count);
 
-  // Ensemble weights display (rescaled to the two active models)
   const weights = [
-    { model: "Random Forest",    weight: 0.60, color: "bg-success-500"   },
-    { model: "Isolation Forest", weight: 0.40, color: "bg-secondary-500" },
+    { model: "ECOD (PyOD)", weight: 1.0, color: "bg-primary-500" },
   ];
 
   return (
@@ -195,7 +192,7 @@ export default function SecurityPage() {
         <div className="glass rounded-2xl overflow-hidden">
           <div className="px-6 py-4 border-b border-white/5">
             <h2 className="text-white font-semibold">Ensemble Weights</h2>
-            <p className="text-gray-500 text-xs mt-0.5">Weighted combination for final anomaly score</p>
+            <p className="text-gray-500 text-xs mt-0.5">Unsupervised ECOD</p>
           </div>
           <div className="p-6 flex flex-col gap-4">
             {weights.map(({ model, weight, color }) => (

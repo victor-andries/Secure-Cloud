@@ -83,7 +83,6 @@ services:
     env_file: ./backend/.env
     environment:
       REDIS_HOST: redis
-      MODEL_DIR: /app/models
       FLASK_DEBUG: "1"
     ports:
       - "5003:5003"
