@@ -4,15 +4,23 @@ import { formatBytes, formatTimestamp, truncateAddress } from "@/lib/utils";
 import AnomalyBadge from "@/components/AnomalyBadge";
 import type { FileCardProps, AnomalyLevel } from "@/types";
 
-export default function FileCard({ file, onDownload, onShare, onDelete }: FileCardProps) {
+export default function FileCard({ file, onDownload, onShare, onDelete, deleting }: FileCardProps) {
   const level: AnomalyLevel = file.aiLevel ?? "NORMAL";
 
   return (
-    <div className="
-      glass rounded-2xl p-5 flex flex-col gap-4
-      hover:border-primary-500/20 transition-all duration-200
-      hover:shadow-lg hover:shadow-black/20
-    ">
+    <div className={`
+      glass rounded-2xl p-5 flex flex-col gap-4 relative
+      transition-all duration-200
+      ${deleting ? "opacity-60" : "hover:border-primary-500/20 hover:shadow-lg hover:shadow-black/20"}
+    `}>
+      {deleting && (
+        <div className="absolute inset-0 rounded-2xl flex items-center justify-center bg-black/30 backdrop-blur-[2px] z-10">
+          <div className="flex items-center gap-2.5 px-4 py-2 rounded-xl bg-background/80 border border-white/10">
+            <div className="w-4 h-4 border-2 border-danger-400/30 border-t-danger-400 rounded-full animate-spin shrink-0" />
+            <span className="text-danger-300 text-xs font-medium">Deleting…</span>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
@@ -60,6 +68,7 @@ export default function FileCard({ file, onDownload, onShare, onDelete }: FileCa
       <div className="flex gap-2 pt-1 border-t border-white/5">
         <button
           onClick={() => onDownload(file.fileId)}
+          disabled={deleting}
           className="
             flex-1 flex items-center justify-center gap-2
             px-3 py-2 rounded-lg text-sm font-medium
@@ -76,6 +85,7 @@ export default function FileCard({ file, onDownload, onShare, onDelete }: FileCa
         </button>
         <button
           onClick={() => onShare(file.fileId)}
+          disabled={deleting}
           className="
             flex-1 flex items-center justify-center gap-2
             px-3 py-2 rounded-lg text-sm font-medium
@@ -92,6 +102,7 @@ export default function FileCard({ file, onDownload, onShare, onDelete }: FileCa
         </button>
         <button
           onClick={() => onDelete(file.fileId)}
+          disabled={deleting}
           className="
             flex items-center justify-center
             px-3 py-2 rounded-lg text-sm font-medium

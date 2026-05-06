@@ -1,178 +1,181 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
 import AnomalyBadge from "@/components/AnomalyBadge";
-import { getAnomalyLogs } from "@/lib/api";
-import { formatTimestamp, truncateAddress } from "@/lib/utils";
-import type { AccessLog } from "@/types";
+import type { AnomalyLevel } from "@/types";
+import { useAudit } from "./_hooks/useAudit";
+import LevelDistributionChart from "./_components/LevelDistributionChart";
+import ActionBreakdownChart from "./_components/ActionBreakdownChart";
+
+const ACTION_FILTERS = [
+  { value: "all",      label: "All Events" },
+  { value: "upload",   label: "Uploads"    },
+  { value: "download", label: "Downloads"  },
+  { value: "delete",   label: "Deletes"    },
+];
 
 export default function AuditPage() {
-  const [logs, setLogs] = useState<AccessLog[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
-  const PAGE_SIZE = 20;
-
-  const fetchLogs = useCallback(async (pageNum: number) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await getAnomalyLogs(pageNum, PAGE_SIZE);
-      const newLogs = response.anomalies ?? [];
-      if (pageNum === 0) {
-        setLogs(newLogs);
-      } else {
-        setLogs((prev) => [...prev, ...newLogs]);
-      }
-      setHasMore(newLogs.length === PAGE_SIZE);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch audit logs");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchLogs(0);
-  }, [fetchLogs]);
-
-  const loadMore = useCallback(() => {
-    const nextPage = page + 1;
-    setPage(nextPage);
-    fetchLogs(nextPage);
-  }, [page, fetchLogs]);
+  const {
+    filteredLogs, loading, tableLoading,
+    page, hasMore, actionFilter, stats,
+    chartData, actionData,
+    setActionFilter, fetchData, handlePageChange,
+  } = useAudit();
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-white">
-          Audit <span className="text-gradient">Trail</span>
-        </h1>
-        <p className="text-gray-400 mt-1">
-          Immutable blockchain-stored anomaly-flagged access events
-        </p>
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-white">
+            Audit <span className="text-gradient">Logs</span>
+          </h1>
+          <p className="text-gray-400 mt-1">
+            Full access history — all file operations recorded on-chain
+          </p>
+        </div>
+        <button
+          onClick={fetchData}
+          className="px-4 py-2 rounded-xl text-sm text-primary-400 bg-primary-600/10 border border-primary-500/20 hover:bg-primary-600/20 transition-all"
+        >
+          Refresh
+        </button>
       </div>
 
-      {/* Stats row */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         {[
-          { label: "Total Anomalies", value: logs.length, color: "text-danger-400" },
-          { label: "Unique Files", value: new Set(logs.map((l) => l.fileId)).size, color: "text-warning-400" },
-          { label: "Unique Users", value: new Set(logs.map((l) => l.user)).size, color: "text-primary-400" }
+          { label: "Total Events",  value: stats.total,     color: "text-white"         },
+          { label: "Uploads",       value: stats.uploads,   color: "text-primary-400"   },
+          { label: "Downloads",     value: stats.downloads, color: "text-secondary-400" },
+          { label: "Blocked",       value: stats.blocked,   color: "text-danger-400"    },
         ].map(({ label, value, color }) => (
-          <div key={label} className="glass rounded-xl p-4 text-center">
-            <p className={`text-2xl font-bold tabular-nums ${color}`}>{value}</p>
-            <p className="text-gray-500 text-xs mt-0.5">{label}</p>
+          <div key={label} className="glass rounded-2xl px-5 py-4">
+            <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">{label}</p>
+            <p className={`text-2xl font-bold ${color}`}>{value}</p>
           </div>
         ))}
       </div>
 
-      {/* Error */}
-      {error && (
-        <div className="mb-4 p-4 rounded-xl bg-danger-500/10 border border-danger-500/20 text-danger-400 text-sm">
-          {error}
-        </div>
-      )}
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <LevelDistributionChart chartData={chartData} />
+        <ActionBreakdownChart actionData={actionData} />
+      </div>
 
       {/* Table */}
       <div className="glass rounded-2xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between">
-          <h2 className="text-white font-semibold">Anomalous Access Events</h2>
-          <button
-            onClick={() => { setPage(0); fetchLogs(0); }}
-            className="text-xs text-primary-400 hover:text-primary-300 transition-colors flex items-center gap-1"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Refresh
-          </button>
+        <div className="px-6 py-4 border-b border-white/5 flex flex-wrap items-center gap-3 justify-between">
+          <div>
+            <h2 className="text-white font-semibold">Access Events</h2>
+            <p className="text-gray-500 text-xs mt-0.5">{filteredLogs.length} events on this page</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {tableLoading && (
+              <div className="w-4 h-4 border-2 border-primary-400/30 border-t-primary-400 rounded-full animate-spin" />
+            )}
+            <div className="flex rounded-xl overflow-hidden border border-white/10">
+              {ACTION_FILTERS.map(({ value, label }) => (
+                <button
+                  key={value}
+                  onClick={() => setActionFilter(value)}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                    actionFilter === value
+                      ? "bg-primary-600/30 text-primary-300"
+                      : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr>
+              <tr className="text-gray-500 text-xs uppercase tracking-wider">
                 <th className="text-left px-6 py-3">Timestamp</th>
-                <th className="text-left px-6 py-3">User</th>
                 <th className="text-left px-6 py-3">File ID</th>
                 <th className="text-left px-6 py-3">Action</th>
                 <th className="text-left px-6 py-3">IP Address</th>
-                <th className="text-left px-6 py-3">Status</th>
-                <th className="text-left px-6 py-3">Anomaly</th>
+                <th className="text-left px-6 py-3">Result</th>
+                <th className="text-left px-6 py-3">Threat Level</th>
               </tr>
             </thead>
             <tbody>
-              {logs.length === 0 && !loading ? (
+              {filteredLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-16 text-center text-gray-600">
-                    No anomaly events recorded yet
+                  <td colSpan={6} className="px-6 py-12 text-center text-gray-600">
+                    {loading ? "Loading..." : "No events recorded"}
                   </td>
                 </tr>
               ) : (
-                logs.map((log, idx) => (
-                  <tr
-                    key={idx}
-                    className={`border-t border-white/5 ${
-                      log.anomalyFlag ? "bg-danger-500/5" : ""
-                    }`}
-                  >
-                    <td className="px-6 py-3 text-gray-400 whitespace-nowrap">
-                      {formatTimestamp(log.timestamp)}
-                    </td>
-                    <td className="px-6 py-3">
-                      <span className="text-primary-400 font-mono text-xs">
-                        {truncateAddress(log.user)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-3">
-                      <span className="text-gray-400 font-mono text-xs">
-                        {(log.fileId?.length ?? 0) > 12 ? `${log.fileId.slice(0, 12)}…` : (log.fileId ?? "—")}
-                      </span>
-                    </td>
-                    <td className="px-6 py-3 text-gray-300 capitalize">{log.action}</td>
-                    <td className="px-6 py-3 text-gray-400 font-mono">{log.ipAddress}</td>
-                    <td className="px-6 py-3">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
-                        log.success
-                          ? "bg-success-500/20 text-success-400"
-                          : "bg-danger-500/20 text-danger-400"
-                      }`}>
-                        {log.success ? "Success" : "Failed"}
-                      </span>
-                    </td>
-                    <td className="px-6 py-3">
-                      <AnomalyBadge level={log.anomalyFlag ? "HIGH" : "NORMAL"} />
-                    </td>
-                  </tr>
-                ))
-              )}
-              {loading && (
-                <tr>
-                  <td colSpan={7} className="px-6 py-4 text-center">
-                    <div className="flex items-center justify-center gap-2 text-gray-500">
-                      <div className="w-4 h-4 border-2 border-primary-500/30 border-t-primary-500 rounded-full animate-spin" />
-                      Loading...
-                    </div>
-                  </td>
-                </tr>
+                filteredLogs.map((log, idx) => {
+                  const level: AnomalyLevel = log.anomalyLevel ?? (log.anomalyFlag ? "HIGH" : "NORMAL");
+                  return (
+                    <tr key={idx} className="border-t border-white/5 hover:bg-white/[0.02] transition-colors">
+                      <td className="px-6 py-3 text-gray-400 text-xs whitespace-nowrap">
+                        {new Date(log.timestamp * 1000).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-3 text-gray-500 font-mono text-xs truncate max-w-[120px]" title={log.fileId}>
+                        {log.fileId ? log.fileId.slice(0, 8) + "…" : "—"}
+                      </td>
+                      <td className="px-6 py-3">
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-md ${
+                          log.action.startsWith("upload")   ? "bg-primary-500/10 text-primary-400" :
+                          log.action.startsWith("download") ? "bg-secondary-500/10 text-secondary-400" :
+                          log.action.startsWith("delete")   ? "bg-danger-500/10 text-danger-400" :
+                          "bg-white/5 text-gray-400"
+                        }`}>
+                          {log.action.replace(/_/g, " ")}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3 text-gray-400 font-mono text-xs">{log.ipAddress}</td>
+                      <td className="px-6 py-3">
+                        <span className={`text-xs font-medium ${log.success ? "text-success-400" : "text-danger-400"}`}>
+                          {log.success ? "Success" : "Blocked"}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3">
+                        <AnomalyBadge level={level} />
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
 
-        {/* Load More */}
-        {hasMore && !loading && (
-          <div className="px-6 py-4 border-t border-white/5 text-center">
+        <div className="flex items-center justify-between px-6 py-3 border-t border-white/5">
+          <span className="text-gray-500 text-xs font-mono">
+            Page {page + 1} · {filteredLogs.length} events
+          </span>
+          <div className="flex gap-2">
             <button
-              onClick={loadMore}
-              className="px-4 py-2 rounded-xl text-sm text-primary-400 hover:text-white bg-primary-600/10 hover:bg-primary-600/20 border border-primary-500/20 transition-all"
+              onClick={() => handlePageChange(page - 1)}
+              disabled={page === 0}
+              className={`px-3 py-1 text-xs rounded border transition-colors ${
+                page === 0
+                  ? "border-white/10 text-gray-600 cursor-not-allowed"
+                  : "border-white/20 text-gray-400 hover:border-primary-400 hover:text-primary-400"
+              }`}
             >
-              Load more
+              ← Prev
+            </button>
+            <button
+              onClick={() => handlePageChange(page + 1)}
+              disabled={!hasMore}
+              className={`px-3 py-1 text-xs rounded border transition-colors ${
+                !hasMore
+                  ? "border-white/10 text-gray-600 cursor-not-allowed"
+                  : "border-white/20 text-gray-400 hover:border-primary-400 hover:text-primary-400"
+              }`}
+            >
+              Next →
             </button>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

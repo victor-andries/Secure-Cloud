@@ -1,7 +1,7 @@
 import sys, os, struct
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from sandbox_service import _detect_platform
+from sandbox import _detect_platform
 
 
 def test_elf64():

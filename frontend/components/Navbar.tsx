@@ -6,11 +6,10 @@ import WalletConnect from "@/components/WalletConnect";
 import { cn } from "@/lib/utils";
 
 const navLinks = [
-  { href: "/",         label: "Dashboard" },
-  { href: "/upload",   label: "Upload"    },
-  { href: "/files",    label: "Files"     },
-  { href: "/audit",    label: "Audit"     },
-  { href: "/security", label: "Security"  },
+  { href: "/",       label: "Dashboard" },
+  { href: "/upload", label: "Upload"    },
+  { href: "/files",  label: "Files"     },
+  { href: "/audit",  label: "Audit"     },
 ];
 
 export default function Navbar() {

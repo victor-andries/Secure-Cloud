@@ -323,6 +323,35 @@ contract SecureDataManagement {
     }
 
     /**
+     * @notice Paginated access logs across all files.
+     * @param page     Zero-based page number
+     * @param pageSize Number of entries per page
+     */
+    function getAllAccessLogs(
+        uint256 page,
+        uint256 pageSize
+    ) external view returns (AccessLog[] memory) {
+        require(pageSize > 0 && pageSize <= 200, "SecureDataManagement: invalid pageSize");
+
+        uint256 total = accessLogs.length;
+        uint256 start = page * pageSize;
+
+        if (start >= total) {
+            return new AccessLog[](0);
+        }
+
+        uint256 end = start + pageSize;
+        if (end > total) end = total;
+        uint256 resultLen = end - start;
+
+        AccessLog[] memory result = new AccessLog[](resultLen);
+        for (uint256 i = 0; i < resultLen; i++) {
+            result[i] = accessLogs[start + i];
+        }
+        return result;
+    }
+
+    /**
      * @notice Paginated anomaly-flagged access logs.
      * @param page     Zero-based page number
      * @param pageSize Number of entries per page

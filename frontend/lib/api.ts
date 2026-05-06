@@ -160,6 +160,19 @@ function mapLog(l: Record<string, unknown>) {
   };
 }
 
+export async function getAllAuditLogs(page = 0, pageSize = 50): Promise<AuditLogsResponse> {
+  const response = await apiClient.get("/audit/all", {
+    params: { page, page_size: pageSize }
+  });
+  const d = response.data;
+  const raw: Record<string, unknown>[] = d.logs ?? d.anomalies ?? [];
+  return {
+    page: d.page ?? page,
+    pageSize: d.page_size ?? pageSize,
+    logs: raw.map(mapLog)
+  };
+}
+
 export async function getAnomalyLogs(page = 0, pageSize = 50): Promise<AuditLogsResponse> {
   const response = await apiClient.get("/audit/anomalies", {
     params: { page, page_size: pageSize }

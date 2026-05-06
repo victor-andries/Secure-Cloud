@@ -149,6 +149,7 @@ export interface FileCardProps {
   onDownload: (fileId: string) => void;
   onShare: (fileId: string) => void;
   onDelete: (fileId: string) => void;
+  deleting?: boolean;
 }
 
 export interface AnomalyBadgeProps {
