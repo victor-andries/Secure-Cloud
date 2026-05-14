@@ -21,11 +21,11 @@ const valueColor: Record<NonNullable<StatCardProps["color"]>, string> = {
 };
 
 const iconColor: Record<NonNullable<StatCardProps["color"]>, string> = {
-  primary:   "text-primary/70",
-  secondary: "text-sky-500/70",
-  danger:    "text-red-500/70",
-  warning:   "text-orange-500/70",
-  success:   "text-emerald-500/70",
+  primary:   "text-primary       bg-primary/10",
+  secondary: "text-sky-400       bg-sky-500/10",
+  danger:    "text-red-400       bg-red-500/10",
+  warning:   "text-orange-400    bg-orange-500/10",
+  success:   "text-emerald-400   bg-emerald-500/10",
 };
 
 export default function StatCard({ title, value, icon, trend, color = "primary" }: StatCardProps) {
@@ -39,9 +39,11 @@ export default function StatCard({ title, value, icon, trend, color = "primary" 
               {value}
             </p>
           </div>
-          <div className={cn("shrink-0 w-8 h-8 flex items-center justify-center", iconColor[color])}>
-            {icon}
-          </div>
+          {icon && (
+            <div className={cn("shrink-0 w-9 h-9 rounded-lg flex items-center justify-center", iconColor[color])}>
+              {icon}
+            </div>
+          )}
         </div>
 
         {trend && (

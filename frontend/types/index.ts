@@ -135,7 +135,7 @@ export interface UserStats {
 export interface StatCardProps {
   title: string;
   value: string | number;
-  icon: React.ReactNode;
+  icon?: React.ReactNode;
   trend?: {
     value: number;
     label: string;

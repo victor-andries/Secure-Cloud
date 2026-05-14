@@ -62,9 +62,10 @@ export function useAudit() {
     if (newPage > page || newPage < page) fetchPage(newPage);
   };
 
-  const filteredLogs = actionFilter === "all"
+  const filteredLogs = (actionFilter === "all"
     ? allLogs
-    : allLogs.filter((l) => l.action.startsWith(actionFilter));
+    : allLogs.filter((l) => l.action.startsWith(actionFilter))
+  ).slice().reverse();
 
   const stats = {
     total: allLogs.length,
