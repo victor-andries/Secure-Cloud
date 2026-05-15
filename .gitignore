@@ -62,3 +62,6 @@ minio_data/
 
 # Claude Code session data
 .claude/
+
+# Internal planning docs
+docs/superpowers/
