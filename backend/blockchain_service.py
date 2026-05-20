@@ -1,10 +1,10 @@
-from dotenv import load_dotenv
-load_dotenv()
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv())
 
-from blockchain import app, load_contract
+from blockchain import app, load_contracts
 import os
 
-load_contract()
+load_contracts()
 
 if __name__ == "__main__":
     import logging

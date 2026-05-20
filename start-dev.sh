@@ -57,17 +57,6 @@ npm run dev &
 FRONTEND_PID=$!
 cd ..
 
-echo ""
-echo "All services running:"
-echo "  Frontend:   http://localhost:3000"
-echo "  Gateway:    http://localhost:5000"
-echo "  Storage:    http://localhost:5001"
-echo "  Blockchain: http://localhost:5002"
-echo "  AI:         http://localhost:5003"
-echo "  MinIO UI:   http://localhost:9001"
-echo ""
-echo "Press Ctrl+C to stop all services"
-
 # Stop all on Ctrl+C
 trap "kill $STORAGE_PID $BLOCKCHAIN_PID $AI_PID $GATEWAY_PID $FRONTEND_PID 2>/dev/null; docker-compose -f docker-compose.dev.yml down" EXIT
 

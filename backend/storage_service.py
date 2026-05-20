@@ -1,5 +1,5 @@
-from dotenv import load_dotenv
-load_dotenv()
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv())
 
 import os
 import io
@@ -22,20 +22,23 @@ logging.basicConfig(
 logger = logging.getLogger("storage_service")
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=[])
 
 MINIO_ENDPOINT   = os.environ["MINIO_ENDPOINT"]
 MINIO_ACCESS_KEY = os.environ["MINIO_ACCESS_KEY"]
 MINIO_SECRET_KEY = os.environ["MINIO_SECRET_KEY"]
-MINIO_BUCKET     = os.getenv("MINIO_BUCKET", "secure-storage")
+MINIO_BUCKET     = os.getenv("MINIO_BUCKET", " ")
 CHUNK_SIZE = 10 * 1024 * 1024  # 10MB
+
+_MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
 
 minio_client = Minio(
     MINIO_ENDPOINT,
     access_key=MINIO_ACCESS_KEY,
     secret_key=MINIO_SECRET_KEY,
-    secure=False
+    secure=_MINIO_SECURE
 )
+logger.info(f"MinIO connection: {'HTTPS' if _MINIO_SECURE else 'HTTP'} ({MINIO_ENDPOINT})")
 
 
 def ensure_bucket() -> None:
@@ -106,7 +109,10 @@ def upload_file() -> tuple:
         uploaded_file = request.files["file"]
         password = request.form["password"]
         file_id = request.form["file_id"]
+        _MAX_STORAGE = int(os.getenv("MAX_UPLOAD_FILE_BYTES", str(500 * 1024 * 1024)))
         file_data = uploaded_file.read()
+        if len(file_data) > _MAX_STORAGE:
+            return jsonify({"error": "File too large"}), 413
         file_name = uploaded_file.filename or "unknown"
 
         logger.info(f"Uploading file: {file_name}, id: {file_id}, size: {len(file_data)} bytes")
@@ -279,12 +285,30 @@ def delete_file(file_id: str) -> tuple:
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route("/stats", methods=["GET"])
+def storage_stats() -> tuple:
+    """Return total bytes stored and object count in the bucket."""
+    try:
+        total_bytes = 0
+        total_objects = 0
+        for obj in minio_client.list_objects(MINIO_BUCKET, recursive=True):
+            total_bytes += obj.size or 0
+            total_objects += 1
+        return jsonify({
+            "total_bytes":   total_bytes,
+            "total_objects": total_objects,
+        }), 200
+    except Exception as exc:
+        logger.error(f"Storage stats error: {exc}")
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/health", methods=["GET"])
 def health() -> tuple:
     """Health check — verify MinIO connectivity."""
     try:
         ensure_bucket()
-        return jsonify({"status": "ok", "service": "storage", "minio": MINIO_ENDPOINT}), 200
+        return jsonify({"status": "ok", "service": "storage"}), 200
     except Exception as exc:
         return jsonify({"status": "error", "error": str(exc)}), 500
 

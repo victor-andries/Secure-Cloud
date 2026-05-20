@@ -1,13 +1,45 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { useAccount } from "wagmi";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { useAccount, useChainId } from "wagmi";
 import { downloadFile, grantAccess, deleteFile } from "@/lib/api";
 import type { FileRecord } from "@/types";
 
+const STORAGE_KEY = "uploadedFiles";
+
+function loadAll(): FileRecord[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const records = JSON.parse(raw) as FileRecord[];
+
+    // TODO(migration): remove this block once all legacy entries have been cleaned up.
+    // Assigns Sepolia chain ID to entries that predate the multi-chain feature.
+    const migrated = records.map((r) =>
+      r.chainId ? r : { ...r, chainId: "11155111" }
+    );
+    if (migrated.some((r, i) => r.chainId !== records[i].chainId)) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
+    }
+    return migrated;
+  } catch {
+    return [];
+  }
+}
+
+function saveAll(records: FileRecord[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+}
+
 export function useFiles() {
   const { address } = useAccount();
-  const [files, setFiles] = useState<FileRecord[]>([]);
+  const chainId = useChainId();
+  const [allFiles, setAllFiles] = useState<FileRecord[]>([]);
+
+  const files = useMemo(
+    () => allFiles.filter((f) => f.chainId === String(chainId)),
+    [allFiles, chainId]
+  );
   const [downloadModal, setDownloadModal] = useState<string | null>(null);
   const [shareModal, setShareModal] = useState<string | null>(null);
   const [password, setPassword] = useState("");
@@ -19,11 +51,7 @@ export function useFiles() {
   const [deleteAllProgress, setDeleteAllProgress] = useState<{ current: number; total: number } | null>(null);
 
   useEffect(() => {
-    const stored = localStorage.getItem("uploadedFiles");
-    if (stored) {
-      try { setFiles(JSON.parse(stored) as FileRecord[]); }
-      catch { setFiles([]); }
-    }
+    setAllFiles(loadAll());
   }, []);
 
   const handleDownload = useCallback((fileId: string) => {
@@ -45,9 +73,9 @@ export function useFiles() {
     setActionMessage(null);
     try {
       await deleteFile(fileId, address ?? "anonymous");
-      const updated = files.filter((f) => f.fileId !== fileId);
-      setFiles(updated);
-      localStorage.setItem("uploadedFiles", JSON.stringify(updated));
+      const updated = allFiles.filter((f) => f.fileId !== fileId);
+      setAllFiles(updated);
+      saveAll(updated);
       setActionMessage({ type: "success", text: "File deleted successfully." });
     } catch (err) {
       setActionMessage({ type: "error", text: err instanceof Error ? err.message : "Delete failed" });
@@ -55,7 +83,7 @@ export function useFiles() {
       setDeletingFileIds((prev) => prev.filter((id) => id !== fileId));
       setActionLoading(false);
     }
-  }, [files, address]);
+  }, [allFiles, address]);
 
   const handleDeleteAll = useCallback(async () => {
     if (!confirm(`Permanently delete all ${files.length} file(s)? This cannot be undone.`)) return;
@@ -78,8 +106,10 @@ export function useFiles() {
       setDeleteAllProgress({ current: completed, total });
     }));
 
-    setFiles([]);
-    localStorage.setItem("uploadedFiles", JSON.stringify([]));
+    const deletedIds = new Set(snapshot.map((f) => f.fileId));
+    const remaining = allFiles.filter((f) => !deletedIds.has(f.fileId));
+    setAllFiles(remaining);
+    saveAll(remaining);
     setDeletingFileIds([]);
     setDeleteAllProgress(null);
     setActionMessage({
@@ -89,7 +119,7 @@ export function useFiles() {
         : `Deleted with ${failed} storage error(s) — local records cleared.`,
     });
     setActionLoading(false);
-  }, [files, address]);
+  }, [files, allFiles, address]);
 
   const executeDownload = useCallback(async () => {
     if (!downloadModal || !password) return;
@@ -123,7 +153,7 @@ export function useFiles() {
     setActionLoading(true);
     setActionMessage(null);
     try {
-      await grantAccess(shareModal, shareAddress, sharePermission);
+      await grantAccess(shareModal, address ?? "", shareAddress, sharePermission);
       setShareModal(null);
       setShareAddress("");
       setActionMessage({ type: "success", text: `Access granted to ${shareAddress}` });

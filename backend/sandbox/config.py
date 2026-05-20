@@ -1,8 +1,8 @@
 import os
 
-SANDBOX_BASE_IMAGE = os.getenv("SANDBOX_BASE_IMAGE", "scp-sandbox-base")
-SANDBOX_DOS_IMAGE  = os.getenv("SANDBOX_DOS_IMAGE",  "scp-sandbox-dos")
-SANDBOX_WINE_IMAGE = os.getenv("SANDBOX_WINE_IMAGE", "scp-sandbox-wine")
+SANDBOX_BASE_IMAGE = os.getenv("SANDBOX_BASE_IMAGE", "")
+SANDBOX_DOS_IMAGE  = os.getenv("SANDBOX_DOS_IMAGE",  "")
+SANDBOX_WINE_IMAGE = os.getenv("SANDBOX_WINE_IMAGE", "")
 
 _MAX_SANDBOX_FILE = 50 * 1024 * 1024
 

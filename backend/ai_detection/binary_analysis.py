@@ -1,6 +1,7 @@
 import struct
 import logging
 import numpy as np
+import pefile
 
 from .config import (
     _EICAR_PREFIX, _HIGH_RISK_RE, _MEDIUM_RISK_RE, _PE_EXTENSIONS,
@@ -9,6 +10,37 @@ from .config import (
 )
 
 logger = logging.getLogger("ai_detection.binary_analysis")
+
+
+def _shannon_entropy(data: bytes) -> float:
+    """Compute Shannon entropy (bits) of a byte sequence."""
+    if not data:
+        return 0.0
+    freq = np.bincount(np.frombuffer(data, dtype=np.uint8), minlength=256)
+    prob = freq[freq > 0] / len(data)
+    return float(-np.sum(prob * np.log2(prob)))
+
+
+def _pe_section_entropy(file_bytes: bytes) -> list[str]:
+    """Return reasons for any PE sections with suspiciously high entropy."""
+    reasons = []
+    try:
+        pe = pefile.PE(data=file_bytes, fast_load=True)
+        for section in pe.sections:
+            name = section.Name.decode('utf-8', errors='replace').rstrip('\x00')
+            data = section.get_data()
+            if not data:
+                continue
+            entropy = _shannon_entropy(data)
+            if name in ('.text', '.data', '.code') and entropy > 7.2:
+                reasons.append(
+                    f"PE section {name} entropy {entropy:.2f} (packed/encrypted, threshold 7.2)"
+                )
+    except pefile.PEFormatError:
+        pass  # not a valid PE — silently skip
+    except Exception as exc:
+        logger.debug(f"PE section entropy analysis failed: {exc}")
+    return reasons
 
 
 def _analyze_elf_file(data: bytes) -> float:
@@ -273,6 +305,7 @@ def analyze_file_content(file_bytes: bytes, filename: str) -> dict:
         "is_high_entropy": False,
         "is_pe_file": False,
         "threat_type": None,
+        "reasons": [],
     }
 
     if not file_bytes:
@@ -341,6 +374,10 @@ def analyze_file_content(file_bytes: bytes, filename: str) -> dict:
                     score += import_score
                     result["threat_type"] = result["threat_type"] or "MALICIOUS_PE_IMPORTS"
                     logger.warning(f"Dangerous PE imports in '{filename}': score +{import_score:.2f}")
+                section_reasons = _pe_section_entropy(file_bytes)
+                if section_reasons:
+                    result["reasons"].extend(section_reasons)
+                    logger.info(f"PE section entropy flags in '{filename}': {section_reasons}")
 
         macho_result = _analyze_macho(file_bytes)
         if macho_result["score"] > 0.0:

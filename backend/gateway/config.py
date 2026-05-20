@@ -8,3 +8,7 @@ GATEWAY_PUBLIC_URL = os.getenv("GATEWAY_PUBLIC_URL")
 REQUEST_TIMEOUT = 60
 
 _SANDBOX_EXTENSIONS = {"sh", "bash", "zsh", "py", "pl", "jar"}
+
+ALLOWED_ORIGINS: list[str] = [
+    o.strip() for o in (os.getenv("ALLOWED_ORIGINS") or "").split(",") if o.strip()
+]

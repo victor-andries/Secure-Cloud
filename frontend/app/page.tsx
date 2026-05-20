@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useChainId } from "wagmi";
 import StatCard from "@/components/StatCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getHealth } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { HealthResponse } from "@/types";
+import type { HealthResponse, FileRecord } from "@/types";
 
 interface DashboardStats {
   totalFiles: number;
@@ -20,6 +21,7 @@ const services = [
 ];
 
 export default function DashboardPage() {
+  const chainId = useChainId();
   const [stats, setStats] = useState<DashboardStats>({
     totalFiles: 0,
     blockchainTxs: 0,
@@ -31,24 +33,28 @@ export default function DashboardPage() {
   const fetchDashboardData = useCallback(async () => {
     setLoading(true);
     try {
-      const healthResponse = await getHealth().catch(() => null);
-      if (healthResponse) setHealth(healthResponse);
+      const [healthResponse] = await Promise.allSettled([getHealth()]);
+      if (healthResponse.status === "fulfilled") setHealth(healthResponse.value);
 
       const storedFiles = localStorage.getItem("uploadedFiles");
-      if (storedFiles) {
-        const files = JSON.parse(storedFiles) as unknown[];
-        setStats((prev) => ({
-          ...prev,
-          totalFiles: files.length,
-          blockchainTxs: files.length,
-        }));
-      }
+      const allRecords = storedFiles ? (JSON.parse(storedFiles) as FileRecord[]) : [];
+      const chainRecords = allRecords.filter((f) => f.chainId === String(chainId));
+      const fileCount = chainRecords.length;
+
+      const bytes = chainRecords.reduce((sum, f) => sum + (f.fileSize ?? 0), 0);
+      let storageUsed = "0 MB";
+      if (bytes >= 1024 ** 3)      storageUsed = `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+      else if (bytes >= 1024 ** 2) storageUsed = `${(bytes / 1024 ** 2).toFixed(2)} MB`;
+      else if (bytes >= 1024)      storageUsed = `${(bytes / 1024).toFixed(1)} KB`;
+      else if (bytes > 0)          storageUsed = `${bytes} B`;
+
+      setStats({ totalFiles: fileCount, blockchainTxs: fileCount, storageUsed });
     } catch (err) {
       console.error("Dashboard data fetch failed:", err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [chainId]);
 
   useEffect(() => {
     fetchDashboardData();

@@ -1,6 +1,7 @@
 import time
 import json
 import logging
+import os
 
 import numpy as np
 from flask import Flask, request, jsonify
@@ -8,9 +9,9 @@ from flask_cors import CORS
 
 from .binary_analysis import analyze_file_content
 from .behavioral import extract_features, _persist_event
-from .detector import run_pyod_detector, classify_score
+from .detector import run_pyod_detector, classify_score, get_ecod_reasons
 from .config import BEHAVIORAL_FEATURES, MIN_FIT_SAMPLES, REDIS_FEAT_KEY, N_FEATURES
-from . import detector, redis_buffer
+from . import detector, redis_buffer, yara_scanner
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,24 +19,32 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ai_detection.routes")
 
+MAX_SCAN_BYTES = int(os.getenv("MAX_SCAN_FILE_BYTES", str(100 * 1024 * 1024)))
+
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=[])
 
 
 @app.route("/scan", methods=["POST"])
 def scan_file() -> tuple:
     """
-    Layer 1 + Layer 2 combined scan for file uploads.
+    Layer 1 + Layer 2 + Layer 3 (YARA) combined scan for file uploads.
     Expects multipart/form-data with optional 'file' field and metadata
     fields: user_id, action, timestamp, ip_address, file_size.
     """
     try:
+        # --- File size guard ---
+        if request.content_length and request.content_length > MAX_SCAN_BYTES:
+            return jsonify({"error": "File too large for scanning"}), 413
+
         file_bytes = b""
         filename   = ""
         if "file" in request.files:
             f          = request.files["file"]
             filename   = f.filename or ""
-            file_bytes = f.read()
+            file_bytes = f.read(MAX_SCAN_BYTES + 1)
+            if len(file_bytes) > MAX_SCAN_BYTES:
+                return jsonify({"error": "File too large for scanning"}), 413
 
         body = {
             "user_id":    request.form.get("user_id",    "unknown"),
@@ -47,13 +56,59 @@ def scan_file() -> tuple:
         user_id   = body["user_id"]
         timestamp = body["timestamp"]
 
+        # --- Layer 1: Static analysis (includes per-section entropy) ---
         layer1        = analyze_file_content(file_bytes, filename)
         content_score = layer1["content_risk_score"]
+        reasons: list[str] = list(layer1.get("reasons", []))
 
-        features    = extract_features(body)
-        pyod_score  = run_pyod_detector(features)
-        behavioral  = pyod_score
+        # --- Layer 2: YARA ---
+        yara_result = yara_scanner.scan(file_bytes, filename)
+        yara_score  = yara_result["yara_score"]
+        reasons.extend(yara_result["reasons"])
 
+        # God-mode match → immediate BLOCK
+        if yara_result["is_god_mode_match"]:
+            _persist_event(user_id, timestamp, 1.0, "CRITICAL", body["action"], "YARA_GOD_MODE")
+            return jsonify({
+                "user_id":            user_id,
+                "ensemble_score":     1.0,
+                "level":              "CRITICAL",
+                "recommended_action": "BLOCK",
+                "is_anomalous":       True,
+                "pre_score":          1.0,
+                "reasons":            reasons,
+                "layer1":             layer1,
+                "layer2":             {"behavioral_score": 0.0, "model_scores": {"ecod": 0.0}},
+                "yara":               yara_result,
+            }), 200
+
+        # Binary analysis MALWARE (content_score == 1.0) → immediate CRITICAL
+        if content_score >= 1.0:
+            _persist_event(user_id, timestamp, 1.0, "CRITICAL", body["action"], layer1.get("threat_type"))
+            return jsonify({
+                "user_id":            user_id,
+                "ensemble_score":     1.0,
+                "level":              "CRITICAL",
+                "recommended_action": "BLOCK",
+                "is_anomalous":       True,
+                "pre_score":          1.0,
+                "reasons":            reasons,
+                "layer1":             layer1,
+                "layer2":             {"behavioral_score": 0.0, "model_scores": {"ecod": 0.0}},
+                "yara":               yara_result,
+            }), 200
+
+        # --- Layer 3: Behavioral ECOD ---
+        features     = extract_features(body)
+        pyod_score   = run_pyod_detector(features)
+        behavioral   = pyod_score
+        ecod_reasons = get_ecod_reasons(features)
+        reasons.extend(ecod_reasons)
+
+        # --- Pre-score for gateway sandbox gate ---
+        pre_score = max(content_score, yara_score)
+
+        # --- Ensemble weights ---
         _CONTENT_DOMINANT_TYPES = {
             "ARCHIVE_CONTAINS_EXECUTABLES", "MALICIOUS_CODE_IN_ARCHIVE",
             "MALWARE_IN_ARCHIVE", "SUSPICIOUS_SCRIPT_IN_ARCHIVE",
@@ -65,14 +120,14 @@ def scan_file() -> tuple:
             "MACHO_SUSPICIOUS",
         }
         is_specific_threat = layer1.get("threat_type") in _CONTENT_DOMINANT_TYPES
-        if content_score >= 0.80 or is_specific_threat:
-            ensemble_score = 0.85 * content_score + 0.15 * behavioral
+        if yara_score >= 0.90 or content_score >= 0.80 or is_specific_threat:
+            ensemble_score = 0.50 * content_score + 0.35 * yara_score + 0.15 * behavioral
         else:
-            ensemble_score = 0.30 * content_score + 0.70 * behavioral
+            ensemble_score = 0.30 * content_score + 0.25 * yara_score + 0.45 * behavioral
 
         logger.info(
-            f"Scan '{filename}' — L1:{content_score:.4f} | "
-            f"L2(ECOD:{pyod_score:.4f}) behav:{behavioral:.4f} | Final:{ensemble_score:.4f}"
+            f"Scan '{filename}' — L1:{content_score:.4f} YARA:{yara_score:.4f} "
+            f"ECOD:{pyod_score:.4f} | PreScore:{pre_score:.4f} Ensemble:{ensemble_score:.4f}"
         )
 
         level = classify_score(ensemble_score)
@@ -86,6 +141,8 @@ def scan_file() -> tuple:
             "level":              level,
             "recommended_action": action_map[level],
             "is_anomalous":       level != "NORMAL",
+            "pre_score":          round(pre_score, 4),
+            "reasons":            reasons,
             "layer1":             layer1,
             "layer2": {
                 "behavioral_score": round(behavioral, 4),
@@ -93,9 +150,7 @@ def scan_file() -> tuple:
                     "ecod": round(pyod_score, 4),
                 },
             },
-            "model_scores": {
-                "ecod": round(pyod_score, 4),
-            },
+            "yara": yara_result,
         }), 200
 
     except Exception as exc:

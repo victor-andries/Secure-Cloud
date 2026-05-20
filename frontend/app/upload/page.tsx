@@ -11,6 +11,7 @@ export default function UploadPage() {
     address, file, password, confirmPassword,
     uploading, progress, result, error,
     pwMatch, pwMismatch,
+    scanning, scanMessage,
     handleFileSelect, handleSubmit,
     setPassword, setConfirmPassword,
   } = useUpload();
@@ -98,7 +99,9 @@ export default function UploadPage() {
         {uploading && (
           <div className="flex flex-col gap-2">
             <div className="flex justify-between items-center">
-              <span className="font-mono text-xs text-muted-foreground">Encrypting & uploading…</span>
+              <span className="font-mono text-xs text-muted-foreground">
+                {scanning && scanMessage ? scanMessage : "Encrypting & uploading…"}
+              </span>
               <span className="font-mono text-xs text-primary">{progress}%</span>
             </div>
             <div className="h-1 bg-muted overflow-hidden">

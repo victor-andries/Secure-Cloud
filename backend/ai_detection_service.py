@@ -1,5 +1,5 @@
-from dotenv import load_dotenv
-load_dotenv()
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv())
 
 from ai_detection import app, load_models, connect_redis
 from ai_detection import (
@@ -14,6 +14,9 @@ import os
 
 connect_redis()
 load_models()
+
+from ai_detection import yara_scanner
+yara_scanner.load_rules()
 
 if __name__ == "__main__":
     import logging

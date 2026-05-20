@@ -1,7 +1,8 @@
 require("@nomicfoundation/hardhat-toolbox");
-require("dotenv").config();
+require("dotenv").config({ path: require("path").join(__dirname, "../.env") });
 
-const SEPOLIA_RPC_URL = process.env.SEPOLIA_RPC_URL || "";
+const SEPOLIA_RPC_URL          = process.env.SEPOLIA_RPC_URL          || "";
+const ARBITRUM_SEPOLIA_RPC_URL = process.env.ARBITRUM_SEPOLIA_RPC_URL || "";
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 
 // Only include accounts if a valid 32-byte private key is configured
@@ -34,6 +35,12 @@ module.exports = {
       accounts: sepoliaAccounts,
       chainId: 11155111,
       timeout: 120000
+    },
+    arbitrumSepolia: {
+      url: ARBITRUM_SEPOLIA_RPC_URL,
+      accounts: sepoliaAccounts,
+      chainId: 421614,
+      timeout: 60000
     }
   },
   paths: {

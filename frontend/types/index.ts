@@ -15,6 +15,7 @@ export interface FileRecord {
   owner: string;
   timestamp: number;
   isActive: boolean;
+  chainId?: string;
   chunks?: ChunkInfo[];
   txHash?: string;
   aiScore?: number;
@@ -35,44 +36,13 @@ export interface AccessLog {
   success: boolean;
   anomalyFlag: boolean;
   anomalyLevel?: AnomalyLevel;
+  pending?: boolean;
 }
 
 // ─── AI Detection ─────────────────────────────────────────────────────────────
 
 export type AnomalyLevel = "NORMAL" | "MEDIUM" | "HIGH" | "CRITICAL";
 
-export interface ModelScores {
-  autoencoder: number;
-  isolation_forest: number;
-  bilstm: number;
-  random_forest: number;
-}
-
-export interface AnomalyFeatures {
-  hour_norm: number;
-  dow_norm: number;
-  is_weekend: boolean;
-  is_night: boolean;
-  hour_deviation: number;
-  size_deviation: number;
-  recent_1h: number;
-  recent_24h: number;
-  freq_score: number;
-  rapid_succession: boolean;
-  location_change: number;
-  geo_risk: number;
-  prev_anomaly_norm: number;
-}
-
-export interface AnomalyDetection {
-  userId: string;
-  ensembleScore: number;
-  level: AnomalyLevel;
-  recommendedAction: "BLOCK" | "ALERT" | "LOG" | "PASS";
-  isAnomalous: boolean;
-  modelScores: ModelScores;
-  features: AnomalyFeatures;
-}
 
 // ─── API Responses ────────────────────────────────────────────────────────────
 
@@ -113,22 +83,26 @@ export interface HealthResponse {
   };
 }
 
+export interface AuditStats {
+  uploads: number;
+  downloads: number;
+  deletes: number;
+  blocked: number;
+}
+
 export interface AuditLogsResponse {
   fileId?: string;
   page: number;
   pageSize: number;
+  totalCount?: number;
+  hasMore?: boolean;
+  stats?: AuditStats;
+  levelCounts?: Record<string, number>;
+  actionCounts?: Record<string, number>;
   logs?: AccessLog[];
   anomalies?: AccessLog[];
 }
 
-export interface UserStats {
-  userId: string;
-  totalEvents: number;
-  totalAnomalies: number;
-  levelDistribution: Record<AnomalyLevel, number>;
-  averageScore: number;
-  maxScore: number;
-}
 
 // ─── Component Props ──────────────────────────────────────────────────────────
 

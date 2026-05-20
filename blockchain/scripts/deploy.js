@@ -39,18 +39,28 @@ async function main() {
   );
 
   if (fs.existsSync(artifactPath)) {
-    const artifact = JSON.parse(fs.readFileSync(artifactPath, "utf8"));
+    const artifact  = JSON.parse(fs.readFileSync(artifactPath, "utf8"));
+    const network   = await ethers.provider.getNetwork();
+    const netName   = network.name === "unknown" ? `chain-${network.chainId}` : network.name;
     const abiOutput = {
       contractName: artifact.contractName,
       abi: artifact.abi,
       address: contractAddress,
       deployedAt: new Date().toISOString(),
-      network: (await ethers.provider.getNetwork()).name
+      network: netName,
+      chainId: Number(network.chainId)
     };
 
     fs.mkdirSync(path.dirname(abiOutputPath), { recursive: true });
+
+    // Save network-specific file, e.g. SecureDataManagement-sepolia.json
+    const networkOutputPath = abiOutputPath.replace(".json", `-${netName}.json`);
+    fs.writeFileSync(networkOutputPath, JSON.stringify(abiOutput, null, 2));
+    console.log(`\nABI saved to: ${networkOutputPath}`);
+
+    // Also overwrite the default file so existing setups keep working
     fs.writeFileSync(abiOutputPath, JSON.stringify(abiOutput, null, 2));
-    console.log(`\nABI saved to: ${abiOutputPath}`);
+    console.log(`ABI saved to: ${abiOutputPath} (default)`);
   } else {
     console.warn(`Artifact not found at ${artifactPath}. Run 'npx hardhat compile' first.`);
   }
