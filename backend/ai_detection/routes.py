@@ -19,7 +19,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ai_detection.routes")
 
-MAX_SCAN_BYTES = int(os.getenv("MAX_SCAN_FILE_BYTES", str(100 * 1024 * 1024)))
+MAX_SCAN_BYTES = int(os.environ["MAX_SCAN_FILE_BYTES"])
 
 app = Flask(__name__)
 CORS(app, origins=[])
@@ -27,13 +27,7 @@ CORS(app, origins=[])
 
 @app.route("/scan", methods=["POST"])
 def scan_file() -> tuple:
-    """
-    Layer 1 + Layer 2 + Layer 3 (YARA) combined scan for file uploads.
-    Expects multipart/form-data with optional 'file' field and metadata
-    fields: user_id, action, timestamp, ip_address, file_size.
-    """
     try:
-        # --- File size guard ---
         if request.content_length and request.content_length > MAX_SCAN_BYTES:
             return jsonify({"error": "File too large for scanning"}), 413
 
@@ -56,17 +50,14 @@ def scan_file() -> tuple:
         user_id   = body["user_id"]
         timestamp = body["timestamp"]
 
-        # --- Layer 1: Static analysis (includes per-section entropy) ---
         layer1        = analyze_file_content(file_bytes, filename)
         content_score = layer1["content_risk_score"]
         reasons: list[str] = list(layer1.get("reasons", []))
 
-        # --- Layer 2: YARA ---
         yara_result = yara_scanner.scan(file_bytes, filename)
         yara_score  = yara_result["yara_score"]
         reasons.extend(yara_result["reasons"])
 
-        # God-mode match → immediate BLOCK
         if yara_result["is_god_mode_match"]:
             _persist_event(user_id, timestamp, 1.0, "CRITICAL", body["action"], "YARA_GOD_MODE")
             return jsonify({
@@ -82,7 +73,6 @@ def scan_file() -> tuple:
                 "yara":               yara_result,
             }), 200
 
-        # Binary analysis MALWARE (content_score == 1.0) → immediate CRITICAL
         if content_score >= 1.0:
             _persist_event(user_id, timestamp, 1.0, "CRITICAL", body["action"], layer1.get("threat_type"))
             return jsonify({
@@ -98,17 +88,14 @@ def scan_file() -> tuple:
                 "yara":               yara_result,
             }), 200
 
-        # --- Layer 3: Behavioral ECOD ---
         features     = extract_features(body)
         pyod_score   = run_pyod_detector(features)
         behavioral   = pyod_score
         ecod_reasons = get_ecod_reasons(features)
         reasons.extend(ecod_reasons)
 
-        # --- Pre-score for gateway sandbox gate ---
         pre_score = max(content_score, yara_score)
 
-        # --- Ensemble weights ---
         _CONTENT_DOMINANT_TYPES = {
             "ARCHIVE_CONTAINS_EXECUTABLES", "MALICIOUS_CODE_IN_ARCHIVE",
             "MALWARE_IN_ARCHIVE", "SUSPICIOUS_SCRIPT_IN_ARCHIVE",
@@ -124,6 +111,8 @@ def scan_file() -> tuple:
             ensemble_score = 0.50 * content_score + 0.35 * yara_score + 0.15 * behavioral
         else:
             ensemble_score = 0.30 * content_score + 0.25 * yara_score + 0.45 * behavioral
+
+        ensemble_score = max(ensemble_score, pre_score)
 
         logger.info(
             f"Scan '{filename}' — L1:{content_score:.4f} YARA:{yara_score:.4f} "
@@ -160,10 +149,6 @@ def scan_file() -> tuple:
 
 @app.route("/detect", methods=["POST"])
 def detect_anomaly() -> tuple:
-    """
-    Behavioural-only detection (Layer 2) — used for downloads and other
-    actions where no file bytes are available.
-    """
     try:
         body = request.get_json()
         if not body:
@@ -204,7 +189,6 @@ def detect_anomaly() -> tuple:
 
 @app.route("/stats/<user_id>", methods=["GET"])
 def get_stats(user_id: str) -> tuple:
-    """Get anomaly statistics for a user from Redis."""
     try:
         if not redis_buffer.redis_client:
             return jsonify({"error": "Redis not available"}), 503
@@ -248,7 +232,6 @@ def get_stats(user_id: str) -> tuple:
 
 @app.route("/health", methods=["GET"])
 def health() -> tuple:
-    """Health check — return model load status."""
     redis_ok = False
     if redis_buffer.redis_client:
         try:

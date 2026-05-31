@@ -1,8 +1,6 @@
 version: "3.9"
 
 services:
-  # ─── Infrastructure ──────────────────────────────────────────────────────────
-
   minio:
     image: minio/minio:latest
     container_name: scp-minio
@@ -31,7 +29,7 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --save 60 1 --loglevel warning
+    command: redis-server --save 60 1 --loglevel warning --requirepass ${REDIS_PASSWORD}
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -41,8 +39,6 @@ services:
     networks:
       - scp-net
 
-  # ─── Backend Services ─────────────────────────────────────────────────────────
-
   storage:
     build:
       context: ./backend
@@ -51,8 +47,6 @@ services:
     command: python storage_service.py
     env_file:
       - ./.env
-    ports:
-      - "5001:5001"
     depends_on:
       minio:
         condition: service_healthy
@@ -68,8 +62,6 @@ services:
     command: python blockchain_service.py
     env_file:
       - ./.env
-    ports:
-      - "5002:5002"
     volumes:
       - ./backend/abi:/app/abi:ro
     restart: unless-stopped
@@ -84,8 +76,6 @@ services:
     command: python ai_detection_service.py
     env_file:
       - ./.env
-    ports:
-      - "5003:5003"
     depends_on:
       redis:
         condition: service_healthy
@@ -101,8 +91,6 @@ services:
     command: python sandbox_service.py
     env_file:
       - ./.env
-    ports:
-      - "5004:5004"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
@@ -118,7 +106,7 @@ services:
     env_file:
       - ./.env
     ports:
-      - "5000:5000"
+      - "5010:5000"
     depends_on:
       redis:
         condition: service_healthy
@@ -134,8 +122,6 @@ services:
     networks:
       - scp-net
 
-  # ─── Frontend ────────────────────────────────────────────────────────────────
-
   frontend:
     build:
       context: ./frontend
@@ -150,6 +136,15 @@ services:
     restart: unless-stopped
     networks:
       - scp-net
+
+  sandbox-base-builder:
+    build:
+      context: ./backend/sandbox_base
+      dockerfile: Dockerfile
+    image: ${SANDBOX_BASE_IMAGE:-scp-sandbox-base}
+    entrypoint: ["echo", "scp-sandbox-base image built"]
+    profiles:
+      - build
 
   sandbox-dos-builder:
     build:
@@ -169,15 +164,11 @@ services:
     profiles:
       - build
 
-# ─── Volumes ──────────────────────────────────────────────────────────────────
-
 volumes:
   minio_data:
     driver: local
   redis_data:
     driver: local
-
-# ─── Networks ─────────────────────────────────────────────────────────────────
 
 networks:
   scp-net:

@@ -1,4 +1,3 @@
-# Stage 1: compile minimal PE decoys using mingw-w64
 FROM debian:bookworm-slim AS pe-builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc mingw-w64 \
@@ -11,7 +10,6 @@ RUN i686-w64-mingw32-gcc   -o /decoys/decoy_x86_a.exe /tmp/decoy.c
 RUN i686-w64-mingw32-gcc   -o /decoys/decoy_x86_b.exe /tmp/decoy.c
 RUN x86_64-w64-mingw32-gcc -o /decoys/decoy_x64_c.exe /tmp/decoy.c
 
-# Stage 2: runtime image with Wine and strace
 FROM debian:bookworm-slim
 RUN dpkg --add-architecture i386 \
     && apt-get update \

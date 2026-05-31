@@ -27,7 +27,7 @@ CORS(app, origins=[])
 MINIO_ENDPOINT   = os.environ["MINIO_ENDPOINT"]
 MINIO_ACCESS_KEY = os.environ["MINIO_ACCESS_KEY"]
 MINIO_SECRET_KEY = os.environ["MINIO_SECRET_KEY"]
-MINIO_BUCKET     = os.getenv("MINIO_BUCKET", " ")
+MINIO_BUCKET     = os.getenv("MINIO_BUCKET", "")
 CHUNK_SIZE = 10 * 1024 * 1024  # 10MB
 
 _MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
@@ -42,7 +42,6 @@ logger.info(f"MinIO connection: {'HTTPS' if _MINIO_SECURE else 'HTTP'} ({MINIO_E
 
 
 def ensure_bucket() -> None:
-    """Ensure the MinIO bucket exists, creating it if necessary."""
     try:
         if not minio_client.bucket_exists(MINIO_BUCKET):
             minio_client.make_bucket(MINIO_BUCKET)
@@ -53,7 +52,6 @@ def ensure_bucket() -> None:
 
 
 def derive_key(password: str, salt: bytes) -> bytes:
-    """Derive a 32-byte AES key from password using PBKDF2-HMAC-SHA256."""
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
@@ -65,10 +63,6 @@ def derive_key(password: str, salt: bytes) -> bytes:
 
 
 def encrypt_chunk(data: bytes, password: str) -> bytes:
-    """
-    Encrypt data with AES-256-GCM.
-    Returns: salt(16) + nonce(12) + ciphertext+tag
-    """
     salt = os.urandom(16)
     nonce = os.urandom(12)
     key = derive_key(password, salt)
@@ -78,10 +72,6 @@ def encrypt_chunk(data: bytes, password: str) -> bytes:
 
 
 def decrypt_chunk(encrypted_data: bytes, password: str) -> bytes:
-    """
-    Decrypt AES-256-GCM encrypted data.
-    Expects: salt(16) + nonce(12) + ciphertext+tag
-    """
     salt = encrypted_data[:16]
     nonce = encrypted_data[16:28]
     ciphertext = encrypted_data[28:]
@@ -92,10 +82,6 @@ def decrypt_chunk(encrypted_data: bytes, password: str) -> bytes:
 
 @app.route("/upload", methods=["POST"])
 def upload_file() -> tuple:
-    """
-    Upload a file in encrypted chunks to MinIO.
-    Expects multipart form: file, password, file_id
-    """
     try:
         ensure_bucket()
 
@@ -109,7 +95,7 @@ def upload_file() -> tuple:
         uploaded_file = request.files["file"]
         password = request.form["password"]
         file_id = request.form["file_id"]
-        _MAX_STORAGE = int(os.getenv("MAX_UPLOAD_FILE_BYTES", str(500 * 1024 * 1024)))
+        _MAX_STORAGE = int(os.environ["MAX_UPLOAD_FILE_BYTES"])
         file_data = uploaded_file.read()
         if len(file_data) > _MAX_STORAGE:
             return jsonify({"error": "File too large"}), 413
@@ -167,11 +153,6 @@ def upload_file() -> tuple:
 
 @app.route("/download/<file_id>", methods=["POST"])
 def download_file(file_id: str) -> tuple:
-    """
-    Download and decrypt all chunks for a file.
-    Expects JSON body: { password, num_chunks }
-    Returns base64-encoded file data.
-    """
     try:
         body = request.get_json()
         if not body:
@@ -183,10 +164,15 @@ def download_file(file_id: str) -> tuple:
         if num_chunks is None:
             return jsonify({"error": "num_chunks required"}), 400
 
+        num_chunks = int(num_chunks)
+        _MAX_CHUNKS = 10_000
+        if num_chunks < 0 or num_chunks > _MAX_CHUNKS:
+            return jsonify({"error": f"num_chunks must be between 0 and {_MAX_CHUNKS}"}), 400
+
         logger.info(f"Downloading file_id: {file_id}, num_chunks: {num_chunks}")
         file_data = bytearray()
 
-        for idx in range(int(num_chunks)):
+        for idx in range(num_chunks):
             chunk_id = f"{file_id}/chunk_{idx:04d}"
             try:
                 response = minio_client.get_object(MINIO_BUCKET, chunk_id)
@@ -215,10 +201,6 @@ def download_file(file_id: str) -> tuple:
 
 @app.route("/verify/<file_id>", methods=["POST"])
 def verify_file(file_id: str) -> tuple:
-    """
-    Verify SHA-256 hashes of all stored chunks.
-    Expects JSON body: { password, expected_hashes: [str] }
-    """
     try:
         body = request.get_json()
         if not body:
@@ -265,7 +247,6 @@ def verify_file(file_id: str) -> tuple:
 
 @app.route("/delete/<file_id>", methods=["DELETE"])
 def delete_file(file_id: str) -> tuple:
-    """Remove all chunks for a file from MinIO."""
     try:
         objects = minio_client.list_objects(MINIO_BUCKET, prefix=f"{file_id}/")
         deleted = []
@@ -287,7 +268,6 @@ def delete_file(file_id: str) -> tuple:
 
 @app.route("/stats", methods=["GET"])
 def storage_stats() -> tuple:
-    """Return total bytes stored and object count in the bucket."""
     try:
         total_bytes = 0
         total_objects = 0
@@ -305,7 +285,6 @@ def storage_stats() -> tuple:
 
 @app.route("/health", methods=["GET"])
 def health() -> tuple:
-    """Health check — verify MinIO connectivity."""
     try:
         ensure_bucket()
         return jsonify({"status": "ok", "service": "storage"}), 200

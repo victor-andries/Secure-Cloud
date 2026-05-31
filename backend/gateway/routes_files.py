@@ -9,7 +9,7 @@ from .config import (
     STORAGE_URL, BLOCKCHAIN_URL, AI_URL, SANDBOX_URL,
     GATEWAY_PUBLIC_URL, REQUEST_TIMEOUT, _SANDBOX_EXTENSIONS,
 )
-from .clients import get_client_ip, ai_detect, ai_scan, sandbox_scan, blockchain_log, require_session
+from .clients import ai_detect, ai_scan, sandbox_scan, blockchain_log, require_session
 
 logger = logging.getLogger("gateway.routes_files")
 files_bp = Blueprint("files", __name__)
@@ -17,13 +17,6 @@ files_bp = Blueprint("files", __name__)
 
 @files_bp.route("/files/upload", methods=["POST"])
 def upload_file() -> tuple:
-    """
-    Full upload pipeline:
-    1. AI pre-check
-    2. MinIO encrypted upload
-    3. Blockchain registration
-    4. Audit log
-    """
     try:
         if "file" not in request.files:
             return jsonify({"error": "No file provided"}), 400
@@ -37,7 +30,7 @@ def upload_file() -> tuple:
             return jsonify({"error": f"Unauthorized: {err}"}), 401
         file_id = request.form.get("file_id", str(uuid.uuid4()))
 
-        _MAX_UPLOAD = int(os.getenv("MAX_UPLOAD_FILE_BYTES", str(500 * 1024 * 1024)))
+        _MAX_UPLOAD = int(os.environ["MAX_UPLOAD_FILE_BYTES"])
         file_data = uploaded_file.read()
         if len(file_data) > _MAX_UPLOAD:
             return jsonify({"error": f"File exceeds maximum upload size of {_MAX_UPLOAD // (1024*1024)} MB"}), 413
@@ -119,7 +112,7 @@ def upload_file() -> tuple:
         storage_data = storage_resp.json()
         logger.info(f"Storage upload complete: {file_id}, chunks: {storage_data.get('num_chunks')}")
 
-        chain_id = request.headers.get("X-Chain-ID", "11155111")
+        chain_id = request.headers.get("X-Chain-ID", "")
         bc_headers = {"X-Chain-ID": chain_id}
         LARGE_FILE_THRESHOLD = 10 * 1024 * 1024
         tx_hash = None
@@ -180,13 +173,6 @@ def upload_file() -> tuple:
 
 @files_bp.route("/files/download/<file_id>", methods=["POST"])
 def download_file(file_id: str) -> tuple:
-    """
-    Full download pipeline:
-    1. Blockchain permission check
-    2. AI detection
-    3. MinIO download
-    4. Audit log
-    """
     try:
         body = request.get_json()
         if not body:
@@ -200,7 +186,7 @@ def download_file(file_id: str) -> tuple:
 
         logger.info(f"Download request: file_id={file_id}, user={user_address}")
 
-        chain_id = request.headers.get("X-Chain-ID", "11155111")
+        chain_id = request.headers.get("X-Chain-ID", "")
         bc_headers = {"X-Chain-ID": chain_id}
         num_chunks = 1
         try:
@@ -272,12 +258,28 @@ def download_file(file_id: str) -> tuple:
 
 @files_bp.route("/files/<file_id>", methods=["DELETE"])
 def delete_file(file_id: str) -> tuple:
-    """Delete all chunks from MinIO and log on blockchain."""
     try:
         ok, err, user_address = require_session(request.headers.get("X-Session-Token", ""))
         if not ok:
             return jsonify({"error": f"Unauthorized: {err}"}), 401
         logger.info(f"Delete request: file_id={file_id}, user={user_address}")
+
+        chain_id = request.headers.get("X-Chain-ID", "")
+        bc_headers = {"X-Chain-ID": chain_id}
+        try:
+            check_resp = requests.post(
+                f"{BLOCKCHAIN_URL}/access/check",
+                json={"file_id": file_id, "user_address": user_address, "required_permission": "FULL"},
+                headers=bc_headers,
+                timeout=REQUEST_TIMEOUT,
+            )
+            if not check_resp.ok:
+                return jsonify({"error": "Service unavailable — cannot verify ownership"}), 503
+            if not check_resp.json().get("has_access", False):
+                return jsonify({"error": "Access denied — you do not own this file"}), 403
+        except Exception as exc:
+            logger.error(f"Blockchain ownership check failed: {exc}", exc_info=True)
+            return jsonify({"error": "Service unavailable — cannot verify ownership"}), 503
 
         resp = requests.delete(f"{STORAGE_URL}/delete/{file_id}", timeout=REQUEST_TIMEOUT)
         if not resp.ok:

@@ -21,7 +21,6 @@ export default function FileCard({ file, onDownload, onShare, onDelete, deleting
           </div>
         </div>
       )}
-      {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-10 h-10 rounded-xl bg-primary-500/20 border border-primary-500/30 flex items-center justify-center shrink-0">
@@ -38,7 +37,6 @@ export default function FileCard({ file, onDownload, onShare, onDelete, deleting
         <AnomalyBadge level={level} score={file.aiScore} />
       </div>
 
-      {/* Metadata */}
       <div className="grid grid-cols-2 gap-3 text-xs">
         <div>
           <p className="text-gray-600 uppercase tracking-wide font-medium mb-0.5">Uploaded</p>
@@ -64,7 +62,6 @@ export default function FileCard({ file, onDownload, onShare, onDelete, deleting
         )}
       </div>
 
-      {/* Actions */}
       <div className="flex gap-2 pt-1 border-t border-white/5">
         <button
           onClick={() => onDownload(file.fileId)}

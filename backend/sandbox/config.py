@@ -14,8 +14,6 @@ _RUNNERS = {
     "pl":   ["perl"],
 }
 
-# ELF e_machine → qemu-user-static invocation (empty = native x86-64, run directly).
-# -L <sysroot> tells QEMU where to find the guest dynamic linker and libc.
 _ELF_MACHINE_QEMU: dict[int, str] = {
     3:   "qemu-i386-static",
     40:  "qemu-arm-static -L /usr/arm-linux-gnueabihf",

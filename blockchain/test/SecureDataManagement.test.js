@@ -24,8 +24,6 @@ describe("SecureDataManagement", function () {
     await contract.waitForDeployment();
   });
 
-  // ─── registerFile ──────────────────────────────────────────────────────────
-
   describe("registerFile", function () {
     it("should register a file successfully", async function () {
       const tx = await contract.connect(owner).registerFile(
@@ -102,8 +100,6 @@ describe("SecureDataManagement", function () {
     });
   });
 
-  // ─── grantAccess ──────────────────────────────────────────────────────────
-
   describe("grantAccess", function () {
     beforeEach(async function () {
       await contract.connect(owner).registerFile(
@@ -144,8 +140,6 @@ describe("SecureDataManagement", function () {
     });
   });
 
-  // ─── checkPermission ──────────────────────────────────────────────────────
-
   describe("checkPermission", function () {
     beforeEach(async function () {
       await contract.connect(owner).registerFile(
@@ -181,8 +175,6 @@ describe("SecureDataManagement", function () {
     });
   });
 
-  // ─── revokeAccess ─────────────────────────────────────────────────────────
-
   describe("revokeAccess", function () {
     beforeEach(async function () {
       await contract.connect(owner).registerFile(
@@ -217,8 +209,6 @@ describe("SecureDataManagement", function () {
     });
   });
 
-  // ─── logAccess ────────────────────────────────────────────────────────────
-
   describe("logAccess", function () {
     beforeEach(async function () {
       await contract.connect(owner).registerFile(
@@ -242,8 +232,6 @@ describe("SecureDataManagement", function () {
     });
   });
 
-  // ─── getAccessLogs ────────────────────────────────────────────────────────
-
   describe("getAccessLogs", function () {
     const FILE_ID_2 = "file-test-002";
 
@@ -252,7 +240,6 @@ describe("SecureDataManagement", function () {
         FILE_ID, FILE_HASH, FILE_NAME, FILE_SIZE,
         CHUNK_IDS, CHUNK_HASHES, CHUNK_SIZES, CHUNK_LOCATIONS
       );
-      // Log 3 entries for FILE_ID and 1 for FILE_ID_2
       await contract.connect(user1).logAccess(FILE_ID, "download", "10.0.0.1", true, false);
       await contract.connect(user1).logAccess(FILE_ID, "view", "10.0.0.1", true, false);
       await contract.connect(user2).logAccess(FILE_ID, "download", "10.0.0.2", false, false);
@@ -279,8 +266,6 @@ describe("SecureDataManagement", function () {
       expect(logs.length).to.equal(0);
     });
   });
-
-  // ─── getAnomalyLogs ───────────────────────────────────────────────────────
 
   describe("getAnomalyLogs", function () {
     beforeEach(async function () {
@@ -319,8 +304,6 @@ describe("SecureDataManagement", function () {
       expect(logs.length).to.equal(0);
     });
   });
-
-  // ─── Helpers ──────────────────────────────────────────────────────────────
 
   async function getTimestamp() {
     const block = await ethers.provider.getBlock("latest");

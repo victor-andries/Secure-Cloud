@@ -14,11 +14,6 @@ logger = logging.getLogger("sandbox.runners")
 
 
 def _run_in_elf_sandbox(file_bytes: bytes, filename: str, runner: list) -> dict:
-    """
-    Run ELF binary or script in isolated sandbox.
-    Uses decoy ELF files in /targets/ (writable tmpfs) to detect file infectors:
-    hashes are captured before and after execution; any change = MALICIOUS.
-    """
     start_ms  = time.time()
     container = None
 
@@ -127,12 +122,6 @@ def _run_in_elf_sandbox(file_bytes: bytes, filename: str, runner: list) -> dict:
 
 
 def _run_in_dos_sandbox(file_bytes: bytes, filename: str) -> dict:
-    """
-    Run DOS COM file in DOSBox sandbox.
-    Decoy COM files (2 bytes each) are placed alongside the target.
-    Any size increase in a decoy = file infector confirmed.
-    Any new .com files = dropper behavior.
-    """
     start_ms  = time.time()
     container = None
 
@@ -248,11 +237,6 @@ def _run_in_dos_sandbox(file_bytes: bytes, filename: str) -> dict:
 
 
 def _run_in_wine_sandbox(file_bytes: bytes, filename: str) -> dict:
-    """
-    Run Windows PE file under Wine with strace monitoring.
-    strace captures Linux syscalls Wine makes on behalf of the Windows process.
-    Decoy PE files in /targets/ are integrity-checked after execution.
-    """
     start_ms  = time.time()
     container = None
 

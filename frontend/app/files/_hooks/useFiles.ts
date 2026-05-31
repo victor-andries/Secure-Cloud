@@ -12,16 +12,7 @@ function loadAll(): FileRecord[] {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const records = JSON.parse(raw) as FileRecord[];
-
-    // TODO(migration): remove this block once all legacy entries have been cleaned up.
-    // Assigns Sepolia chain ID to entries that predate the multi-chain feature.
-    const migrated = records.map((r) =>
-      r.chainId ? r : { ...r, chainId: "11155111" }
-    );
-    if (migrated.some((r, i) => r.chainId !== records[i].chainId)) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
-    }
-    return migrated;
+    return records;
   } catch {
     return [];
   }

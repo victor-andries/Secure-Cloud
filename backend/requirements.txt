@@ -10,7 +10,7 @@ pandas==2.2.2
 redis==5.0.8
 requests==2.32.3
 docker==7.1.0
-pyod
+pyod==2.0.2
 yara-python==4.5.4
 pefile==2024.8.26
 eth-account==0.11.3

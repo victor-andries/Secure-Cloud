@@ -17,7 +17,7 @@ logging.basicConfig(
 )
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_UPLOAD_FILE_BYTES", str(500 * 1024 * 1024)))
+app.config["MAX_CONTENT_LENGTH"] = int(os.environ["MAX_UPLOAD_FILE_BYTES"])
 CORS(app, origins=ALLOWED_ORIGINS, allow_headers=["Content-Type", "X-Session-Token", "X-Chain-ID"])
 
 app.register_blueprint(files_bp)

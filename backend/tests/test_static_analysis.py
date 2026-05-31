@@ -2,14 +2,12 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-# Patch redis before importing the module (avoids connection errors in tests)
 import unittest.mock as mock
 with mock.patch('redis.Redis'):
     from ai_detection_service import _analyze_com_file, _analyze_elf_file, analyze_file_content
 
 
 def test_com_infector_detected():
-    # Classic COM infector: jump, INT 21h FindNext, wildcard, create-file call
     data = (
         b'\xEB\x00'       # short jump (COM identifier)
         b'\xCD\x21'       # INT 21h
@@ -35,23 +33,18 @@ def test_com_not_com_extension():
 
 
 def test_com_no_jump_byte():
-    # COM file without initial jump byte is not recognized
     data = b'\x90\x90' + b'\xCD\x21' + b'*.com\x00'
     score = _analyze_com_file(data, "test.com")
     assert score == 0.0, f"No jump byte must return 0.0, got {score}"
 
 
 def test_com_clean_baseline():
-    # Minimal valid COM (just a NOP + exit via INT 21h AH=4Ch)
     data = b'\xEB\x00' + b'\xB4\x4C' + b'\xCD\x21'
     score = _analyze_com_file(data, "clean.com")
-    # Gets baseline 0.20 + 0.25 for INT 21h = 0.45
-    # Size bonus (+0.25) is suppressed because specific_indicators == 0 (no infector-specific pattern)
     assert score <= 0.50, f"Clean COM should score low, got {score}"
 
 
 def test_elf_file_infector_detected():
-    # X21-style: opendir+readdir + rename+fwrite + chmod+execve
     data = b'\x7fELF' + b'\x00' * 4 + b'opendir\x00readdir\x00rename\x00fwrite\x00chmod\x00execve\x00'
     score = _analyze_elf_file(data)
     assert score >= 0.75, f"ELF file infector triad must score >= 0.75, got {score}"
@@ -64,21 +57,18 @@ def test_elf_not_elf():
 
 
 def test_elf_partial_indicators():
-    # opendir+readdir but no rename/chmod/execve — suspicious but not full triad
     data = b'\x7fELF' + b'\x00' * 4 + b'opendir\x00readdir\x00fwrite\x00'
     score = _analyze_elf_file(data)
     assert 0.0 < score < 0.60, f"Partial indicators must score between 0 and 0.60, got {score}"
 
 
 def test_elf_sendfile_fork_execv_detected():
-    # virus.elf32-style: opendir+readdir + sendfile + fork+execv (no chmod/execve)
     data = b'\x7fELF' + b'\x00' * 4 + b'opendir\x00readdir\x00sendfile\x00fork\x00execv\x00'
     score = _analyze_elf_file(data)
     assert score >= 0.75, f"sendfile+fork+execv infector triad must score >= 0.75, got {score}"
 
 
 def test_elf_creat_fork_execv_detected():
-    # creat() variant: opendir+readdir + creat + fork+execv
     data = b'\x7fELF' + b'\x00' * 4 + b'opendir\x00readdir\x00creat\x00fork\x00execv\x00'
     score = _analyze_elf_file(data)
     assert score >= 0.75, f"creat+fork+execv infector triad must score >= 0.75, got {score}"
@@ -139,7 +129,6 @@ def test_pe_benign():
 
 
 def test_analyze_file_content_pe_imports_sets_threat_type():
-    # Minimal MZ-headed PE data with injection triad import names
     data = (
         b'MZ' + b'\x00' * 60
         + b'CreateRemoteThread\x00VirtualAllocEx\x00WriteProcessMemory\x00'

@@ -10,7 +10,6 @@ _MACHO_MAGICS = {
 
 
 def _qemu_for_elf(file_bytes: bytes) -> str:
-    """Return the qemu-user-static binary needed to run this ELF, or '' for native x86-64."""
     if len(file_bytes) < 20 or file_bytes[:4] != b'\x7fELF':
         return ""
     ei_data = file_bytes[5]  # 1=LE, 2=BE
@@ -24,11 +23,6 @@ def _qemu_for_elf(file_bytes: bytes) -> str:
 
 
 def _detect_platform(data: bytes, filename: str) -> str:
-    """
-    Detect execution platform from magic bytes and filename.
-    MZ header is checked before .com extension so 32-bit PE .com files
-    are correctly routed to the Windows sandbox, not DOSBox.
-    """
     if data[:4] == b'\x7fELF':
         return "elf"
     if data[:2] == b'MZ':

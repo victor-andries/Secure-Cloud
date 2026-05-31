@@ -1,10 +1,7 @@
 # Development — full stack with hot reload via volume mounts
 # Usage: docker-compose -f docker-compose.dev.yml up --build
-# After first build, just: docker-compose -f docker-compose.dev.yml up
 
 services:
-  # ─── Infrastructure ──────────────────────────────────────────────────────────
-
   minio:
     image: minio/minio:latest
     container_name: scp-minio
@@ -33,8 +30,6 @@ services:
     networks:
       - scp-net
 
-  # ─── Backend Services (hot reload via volume mounts) ─────────────────────────
-
   storage:
     build:
       context: ./backend
@@ -47,7 +42,7 @@ services:
     ports:
       - "5001:5001"
     volumes:
-      - ./backend:/app          # mount source — Flask reloader picks up changes
+      - ./backend:/app
     depends_on:
       - minio
       - redis
@@ -119,7 +114,7 @@ services:
     environment:
       FLASK_DEBUG: "1"
     ports:
-      - "5000:5000"
+      - "5010:5000"
     volumes:
       - ./backend:/app
     depends_on:
@@ -131,8 +126,6 @@ services:
     networks:
       - scp-net
 
-  # ─── Frontend (hot reload via Next.js dev server) ────────────────────────────
-
   frontend:
     build:
       context: ./frontend
@@ -140,25 +133,21 @@ services:
     container_name: scp-frontend
     env_file: ./.env
     environment:
-      WATCHPACK_POLLING: "true"    # required for file watching inside Docker on Windows
+      WATCHPACK_POLLING: "true"
     ports:
       - "3000:3000"
     volumes:
       - ./frontend:/app
-      - /app/node_modules          # keep node_modules inside container
+      - /app/node_modules
     depends_on:
       - gateway
     restart: unless-stopped
     networks:
       - scp-net
 
-# ─── Volumes ──────────────────────────────────────────────────────────────────
-
 volumes:
   minio_data:
   redis_data:
-
-# ─── Networks ─────────────────────────────────────────────────────────────────
 
 networks:
   scp-net:

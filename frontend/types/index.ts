@@ -1,5 +1,3 @@
-// ─── Blockchain / File Types ──────────────────────────────────────────────────
-
 export interface ChunkInfo {
   chunkId: string;
   chunkHash: string;
@@ -23,8 +21,6 @@ export interface FileRecord {
   numChunks?: number;
 }
 
-// ─── Access Control ───────────────────────────────────────────────────────────
-
 export type Permission = "NONE" | "READ" | "WRITE" | "FULL";
 
 export interface AccessLog {
@@ -39,12 +35,7 @@ export interface AccessLog {
   pending?: boolean;
 }
 
-// ─── AI Detection ─────────────────────────────────────────────────────────────
-
 export type AnomalyLevel = "NORMAL" | "MEDIUM" | "HIGH" | "CRITICAL";
-
-
-// ─── API Responses ────────────────────────────────────────────────────────────
 
 export interface UploadResponse {
   success: boolean;
@@ -102,9 +93,6 @@ export interface AuditLogsResponse {
   logs?: AccessLog[];
   anomalies?: AccessLog[];
 }
-
-
-// ─── Component Props ──────────────────────────────────────────────────────────
 
 export interface StatCardProps {
   title: string;

@@ -63,10 +63,6 @@ export function getAnomalyChartColor(level: AnomalyLevel): string {
   }
 }
 
-export function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
-
 export function formatScore(score: number): string {
   return `${(score * 100).toFixed(1)}%`;
 }

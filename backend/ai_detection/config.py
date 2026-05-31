@@ -1,8 +1,9 @@
 import os
 import re
 
-REDIS_HOST = os.environ["REDIS_HOST"]
-REDIS_PORT = int(os.environ["REDIS_PORT"])
+REDIS_HOST     = os.environ["REDIS_HOST"]
+REDIS_PORT     = int(os.environ["REDIS_PORT"])
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD") or None
 
 THRESHOLDS = {
     "CRITICAL": 0.85,
@@ -33,10 +34,8 @@ BUFFER_MAXLEN   = 2000
 MIN_FIT_SAMPLES = 50
 REFIT_EVERY     = 100
 
-# EICAR standard test file prefix (safe to store — not a real virus)
 _EICAR_PREFIX = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}"
 
-# High-risk patterns — each match adds 0.30 to content score (cap 0.60)
 _HIGH_RISK_RE = [
     re.compile(p, re.IGNORECASE) for p in [
         r"sub\s+auto(open|exec|close|new)\s*\(",
@@ -61,7 +60,6 @@ _HIGH_RISK_RE = [
     ]
 ]
 
-# Medium-risk patterns — each match adds 0.15 to content score (cap 0.45)
 _MEDIUM_RISK_RE = [
     re.compile(p, re.IGNORECASE) for p in [
         r"\\x[0-9a-f]{2}(\\x[0-9a-f]{2}){4,}",

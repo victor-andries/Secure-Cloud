@@ -19,10 +19,6 @@ CORS(app)
 
 @app.route("/analyze", methods=["POST"])
 def analyze() -> tuple:
-    """
-    Sandbox a file by executing it in an isolated Docker container under strace.
-    Accepts multipart/form-data with a 'file' field.
-    """
     try:
         if "file" not in request.files:
             return jsonify({"error": "No file provided"}), 400
@@ -86,7 +82,6 @@ def analyze() -> tuple:
 
 @app.route("/health", methods=["GET"])
 def health() -> tuple:
-    """Health check — verify Docker daemon is reachable and all sandbox images exist."""
     docker_ok = False
     images: dict = {}
     extra: dict  = {}

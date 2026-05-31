@@ -10,7 +10,6 @@ health_bp = Blueprint("health_gateway", __name__)
 
 @health_bp.route("/health", methods=["GET"])
 def health() -> tuple:
-    """Ping all downstream services and return their statuses."""
     services = {
         "storage":      f"{STORAGE_URL}/health",
         "blockchain":   f"{BLOCKCHAIN_URL}/health",
@@ -38,7 +37,6 @@ def health() -> tuple:
 
 @health_bp.route("/storage/stats", methods=["GET"])
 def storage_stats() -> tuple:
-    """Return storage usage stats from the storage service."""
     try:
         resp = requests.get(f"{STORAGE_URL}/stats", timeout=REQUEST_TIMEOUT)
         return jsonify(resp.json()), resp.status_code

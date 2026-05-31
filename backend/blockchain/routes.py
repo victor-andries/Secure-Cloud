@@ -6,7 +6,7 @@ from flask_cors import CORS
 from web3 import Web3
 
 from . import web3_client
-from .web3_client import _level_log, _lookup_level, _lookup_reasons, get_chain, send_transaction, send_transaction_nowait
+from .web3_client import _level_log, _build_level_log_map, get_chain, send_transaction, send_transaction_nowait
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,7 +36,6 @@ def _validated_pagination() -> tuple[int, int]:
 
 @app.route("/register", methods=["POST"])
 def register_file() -> tuple:
-    """Register a file on the blockchain."""
     try:
         chain, chain_id = _get_chain()
         if not chain:
@@ -72,7 +71,6 @@ def register_file() -> tuple:
 
 @app.route("/file/<file_id>", methods=["GET"])
 def get_file(file_id: str) -> tuple:
-    """Get file metadata from the blockchain."""
     try:
         chain, chain_id = _get_chain()
         if not chain:
@@ -107,7 +105,6 @@ def get_file(file_id: str) -> tuple:
 
 @app.route("/access/grant", methods=["POST"])
 def grant_access() -> tuple:
-    """Grant access permission to a user for a file."""
     try:
         chain, chain_id = _get_chain()
         if not chain:
@@ -138,7 +135,6 @@ def grant_access() -> tuple:
 
 @app.route("/access/revoke", methods=["POST"])
 def revoke_access() -> tuple:
-    """Revoke access permission from a user for a file."""
     try:
         chain, chain_id = _get_chain()
         if not chain:
@@ -165,7 +161,6 @@ def revoke_access() -> tuple:
 
 @app.route("/access/check", methods=["POST"])
 def check_access() -> tuple:
-    """Check if a user has the required permission for a file."""
     try:
         chain, chain_id = _get_chain()
         if not chain:
@@ -196,7 +191,6 @@ def check_access() -> tuple:
 
 @app.route("/audit/log", methods=["POST"])
 def log_access() -> tuple:
-    """Log an access event to the blockchain."""
     try:
         chain, chain_id = _get_chain()
         if not chain:
@@ -242,7 +236,6 @@ def log_access() -> tuple:
 
 @app.route("/audit/logs/<file_id>", methods=["GET"])
 def get_audit_logs(file_id: str) -> tuple:
-    """Get paginated access logs for a file."""
     try:
         chain, chain_id = _get_chain()
         if not chain:
@@ -271,17 +264,14 @@ def get_audit_logs(file_id: str) -> tuple:
 
 @app.route("/audit/all", methods=["GET"])
 def get_all_logs() -> tuple:
-    """Get paginated access logs across all files, newest first."""
     try:
         chain, chain_id = _get_chain()
         if not chain:
             return jsonify({"error": f"Chain {chain_id} not configured"}), 503
         page, page_size = _validated_pagination()
 
-        # First param is page number (0-indexed), second is page size (contract max 200).
-        # Fetch all pages until a partial page signals end of log. call() is free.
         PAGE_LIMIT = 200
-        MAX_PAGES  = 50     # hard cap: 10 000 entries max
+        MAX_PAGES  = 50
         all_raw    = []
         page_num   = 0
         for _ in range(MAX_PAGES):
@@ -293,10 +283,6 @@ def get_all_logs() -> tuple:
             page_num += 1
         logger.info(f"[audit/all] total_onchain={len(all_raw)} level_log_size={len(_level_log)}")
         all_raw = list(reversed(all_raw))
-
-        # On page 0, prepend _level_log entries not yet confirmed on-chain.
-        # These are events logged in the last 5 minutes whose (file_id, action, ip)
-        # tuple isn't already present in the fetched on-chain data.
         pending_logs = []
         if page == 0:
             now = int(time.time())
@@ -325,10 +311,13 @@ def get_all_logs() -> tuple:
         start    = page * page_size
         page_raw = all_raw[start : start + page_size]
 
+        ll_map = _build_level_log_map()
+
         confirmed_logs = []
         for log in page_raw:
             file_id, action, ip_address = log[1], log[2], log[3]
-            level = _lookup_level(file_id, action, ip_address) or ("HIGH" if log[6] else "NORMAL")
+            entry  = ll_map.get((file_id, action, ip_address), {})
+            level  = entry.get("anomaly_level") or ("HIGH" if log[6] else "NORMAL")
             confirmed_logs.append({
                 "user":          log[0],
                 "file_id":       file_id,
@@ -338,13 +327,12 @@ def get_all_logs() -> tuple:
                 "success":       log[5],
                 "anomaly_flag":  log[6],
                 "anomaly_level": level,
-                "reasons":       _lookup_reasons(file_id, action, ip_address),
+                "reasons":       entry.get("reasons", []),
             })
 
         logs = pending_logs + confirmed_logs
         has_more = len(page_raw) >= page_size
 
-        # Aggregate stats + chart data across ALL entries (not just current page).
         uploads   = sum(1 for l in all_raw if l[2].startswith("upload")   and l[5])
         downloads = sum(1 for l in all_raw if l[2].startswith("download") and l[5])
         deletes   = sum(1 for l in all_raw if l[2].startswith("delete"))
@@ -354,16 +342,14 @@ def get_all_logs() -> tuple:
         deletes   += sum(1 for e in pending_logs if e["action"].startswith("delete"))
         blocked   += sum(1 for e in pending_logs if not e["success"])
 
-        # Level distribution across all on-chain entries.
         level_counts = {"NORMAL": 0, "MEDIUM": 0, "HIGH": 0, "CRITICAL": 0}
         for log in all_raw:
-            lvl = _lookup_level(log[1], log[2], log[3]) or ("HIGH" if log[6] else "NORMAL")
+            lvl = ll_map.get((log[1], log[2], log[3]), {}).get("anomaly_level") or ("HIGH" if log[6] else "NORMAL")
             level_counts[lvl] = level_counts.get(lvl, 0) + 1
         for entry in pending_logs:
             lvl = entry.get("anomaly_level", "NORMAL")
             level_counts[lvl] = level_counts.get(lvl, 0) + 1
 
-        # Action breakdown across all on-chain entries.
         action_counts: dict = {}
         for log in all_raw:
             action_counts[log[2]] = action_counts.get(log[2], 0) + 1
@@ -393,7 +379,6 @@ def get_all_logs() -> tuple:
 
 @app.route("/audit/anomalies", methods=["GET"])
 def get_anomalies() -> tuple:
-    """Get paginated anomaly-flagged access logs."""
     try:
         chain, chain_id = _get_chain()
         if not chain:
@@ -401,10 +386,12 @@ def get_anomalies() -> tuple:
         page, page_size = _validated_pagination()
 
         logs_raw = chain.contract.functions.getAnomalyLogs(page, page_size).call()
+        ll_map = _build_level_log_map()
         logs = []
         for log in logs_raw:
             file_id, action, ip_address = log[1], log[2], log[3]
-            level = _lookup_level(file_id, action, ip_address) or ("HIGH" if log[6] else "NORMAL")
+            entry = ll_map.get((file_id, action, ip_address), {})
+            level = entry.get("anomaly_level") or ("HIGH" if log[6] else "NORMAL")
             logs.append({
                 "user":          log[0],
                 "file_id":       file_id,
@@ -414,7 +401,7 @@ def get_anomalies() -> tuple:
                 "success":       log[5],
                 "anomaly_flag":  log[6],
                 "anomaly_level": level,
-                "reasons":       _lookup_reasons(file_id, action, ip_address),
+                "reasons":       entry.get("reasons", []),
             })
         return jsonify({"page": page, "page_size": page_size, "anomalies": logs}), 200
 
@@ -425,7 +412,6 @@ def get_anomalies() -> tuple:
 
 @app.route("/health", methods=["GET"])
 def health() -> tuple:
-    """Health check — verify blockchain connections for all configured chains."""
     from .web3_client import _chains
     chain_statuses = {}
     overall_ok = False

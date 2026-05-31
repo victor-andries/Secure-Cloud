@@ -12,10 +12,11 @@ _log_pool = ThreadPoolExecutor(max_workers=5)
 
 from .config import AI_URL, BLOCKCHAIN_URL, SANDBOX_URL, REQUEST_TIMEOUT
 
-_REDIS_HOST = os.getenv("REDIS_HOST", "")
-_REDIS_PORT  = int(os.getenv("REDIS_PORT", ""))
+_REDIS_HOST     = os.getenv("REDIS_HOST", "")
+_REDIS_PORT     = int(os.getenv("REDIS_PORT", ""))
+_REDIS_PASSWORD = os.getenv("REDIS_PASSWORD") or None
 try:
-    _nonce_rc = _redis_pkg.Redis(host=_REDIS_HOST, port=_REDIS_PORT, decode_responses=True)
+    _nonce_rc = _redis_pkg.Redis(host=_REDIS_HOST, port=_REDIS_PORT, password=_REDIS_PASSWORD, decode_responses=True)
     _nonce_rc.ping()
 except Exception:
     _nonce_rc = None
@@ -28,7 +29,6 @@ _TRUSTED_PROXIES: set[str] = {
 
 
 def get_client_ip() -> str:
-    """Return real client IP. Only trusts X-Forwarded-For/X-Real-IP from configured trusted proxies."""
     remote = flask_request.remote_addr or "0.0.0.0"
     if remote in _TRUSTED_PROXIES:
         forwarded = flask_request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
@@ -41,7 +41,6 @@ def get_client_ip() -> str:
 
 
 def verify_wallet_signature(address: str, signature: str, nonce: str) -> bool:
-    """Verify that signature is the result of signing nonce with the key for address."""
     try:
         message   = encode_defunct(text=nonce)
         recovered = Account.recover_message(message, signature=signature)
@@ -52,10 +51,6 @@ def verify_wallet_signature(address: str, signature: str, nonce: str) -> bool:
 
 
 def require_session(token: str) -> tuple[bool, str, str]:
-    """
-    Validate a session token. Returns (ok, error, address).
-    Refreshes TTL on each successful use (sliding expiry).
-    """
     if not token:
         return False, "Authentication required — connect your wallet and sign in", ""
     if _nonce_rc is None:
@@ -69,10 +64,6 @@ def require_session(token: str) -> tuple[bool, str, str]:
 
 
 def require_signature(address: str, signature: str) -> tuple[bool, str]:
-    """
-    Validate a wallet signature against a stored nonce.
-    Returns (ok, error_message). Consumes the nonce on success (one-time use).
-    """
     if not address or not signature:
         return False, "user_address and signature are required"
     key = f"nonce:{address.lower()}"
@@ -88,7 +79,6 @@ def require_signature(address: str, signature: str) -> tuple[bool, str]:
 
 
 def ai_detect(user_id: str, action: str, file_size: int = 0) -> dict:
-    """Behavioural-only detection via /detect — used for downloads."""
     try:
         payload = {
             "user_id": user_id,
@@ -107,7 +97,6 @@ def ai_detect(user_id: str, action: str, file_size: int = 0) -> dict:
 
 def ai_scan(user_id: str, action: str, file_size: int,
             file_bytes: bytes, filename: str) -> dict:
-    """Layer 1 + Layer 2 scan via /scan — used for uploads (sends file bytes)."""
     try:
         resp = requests.post(
             f"{AI_URL}/scan",
@@ -129,7 +118,6 @@ def ai_scan(user_id: str, action: str, file_size: int,
 
 
 def sandbox_scan(file_bytes: bytes, filename: str) -> dict:
-    """Dynamic sandbox execution via /analyze — used for executable uploads."""
     if not SANDBOX_URL:
         return {"verdict": "SKIPPED", "sandbox_score": 0.0, "behaviors": []}
     try:
@@ -154,7 +142,6 @@ def blockchain_log(
     reasons: list[str] | None = None,
     user_address: str = "",
 ) -> None:
-    """Fire-and-forget audit log — does not block the HTTP response."""
     ip = get_client_ip()
     chain_id = flask_request.headers.get("X-Chain-ID", "11155111")
     payload = {

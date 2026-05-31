@@ -68,7 +68,6 @@ export default function AuditPage() {
         </button>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-6">
         {[
           { label: "Total Events",  value: stats.total,     color: "text-white"         },
@@ -84,13 +83,11 @@ export default function AuditPage() {
         ))}
       </div>
 
-      {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         <LevelDistributionChart chartData={chartData} />
         <ActionBreakdownChart actionData={actionData} />
       </div>
 
-      {/* Table */}
       <div ref={tableRef} className="glass rounded-2xl overflow-hidden">
         <div className="px-6 py-4 border-b border-white/5 flex flex-wrap items-center gap-3 justify-between">
           <div>

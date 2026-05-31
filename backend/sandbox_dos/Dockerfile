@@ -4,7 +4,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     dosbox coreutils \
     && rm -rf /var/lib/apt/lists/*
 
-# Minimal COM decoys: 2 bytes each — INT 20h (exit) = 0xCD 0x20
 RUN mkdir -p /dosbox/c/decoys /dosbox/c/target_dir
 RUN printf '\xcd\x20' > /dosbox/c/decoys/decoy_a.com
 RUN printf '\xcd\x20' > /dosbox/c/decoys/decoy_b.com

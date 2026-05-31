@@ -13,7 +13,6 @@ logger = logging.getLogger("ai_detection.binary_analysis")
 
 
 def _shannon_entropy(data: bytes) -> float:
-    """Compute Shannon entropy (bits) of a byte sequence."""
     if not data:
         return 0.0
     freq = np.bincount(np.frombuffer(data, dtype=np.uint8), minlength=256)
@@ -22,7 +21,6 @@ def _shannon_entropy(data: bytes) -> float:
 
 
 def _pe_section_entropy(file_bytes: bytes) -> list[str]:
-    """Return reasons for any PE sections with suspiciously high entropy."""
     reasons = []
     try:
         pe = pefile.PE(data=file_bytes, fast_load=True)
@@ -114,7 +112,6 @@ def _analyze_com_file(data: bytes, filename: str) -> float:
 
 
 def _analyze_pe_imports(data: bytes) -> float:
-    """Score PE binary based on dangerous import name patterns found in its bytes."""
     score = 0.0
 
     if (b'CreateRemoteThread' in data
@@ -137,10 +134,6 @@ def _analyze_pe_imports(data: bytes) -> float:
 
 
 def _analyze_macho(data: bytes) -> dict:
-    """
-    Static analysis of Mach-O binaries.
-    Returns {"score": float, "platform": str, "threat_type": str|None}
-    """
     if len(data) < 4:
         return {"score": 0.0, "platform": "", "threat_type": None}
 
@@ -173,11 +166,6 @@ def _analyze_macho(data: bytes) -> dict:
 
 
 def _inspect_archive(file_bytes: bytes, filename: str) -> dict:
-    """
-    Inspect archive contents for dangerous executables and malicious scripts.
-    Protects against zip bombs by capping total extraction at 50 MB.
-    Returns: {"score": float 0-1, "threat_type": str|None, "details": list}
-    """
     import io
     import zipfile
     import tarfile
@@ -217,7 +205,7 @@ def _inspect_archive(file_bytes: bytes, filename: str) -> dict:
                     if m.filename.rsplit(".", 1)[-1].lower() in _DANGEROUS_IN_ARCHIVE
                 ]
                 if dangerous:
-                    score = max(score, 0.80 if len(dangerous) >= 2 else 0.60)
+                    score = max(score, 0.80 if len(dangerous) >= 2 else 0.70)
                     threat_type = "ARCHIVE_CONTAINS_EXECUTABLES"
                     details.append(f"Executables inside archive: {dangerous[:5]}")
                 if total_uncompressed <= _MAX_EXTRACT:
@@ -250,7 +238,7 @@ def _inspect_archive(file_bytes: bytes, filename: str) -> dict:
                     if m.isfile() and m.name.rsplit(".", 1)[-1].lower() in _DANGEROUS_IN_ARCHIVE
                 ]
                 if dangerous:
-                    score = max(score, 0.80 if len(dangerous) >= 2 else 0.60)
+                    score = max(score, 0.80 if len(dangerous) >= 2 else 0.70)
                     threat_type = "ARCHIVE_CONTAINS_EXECUTABLES"
                     details.append(f"Executables inside archive: {dangerous[:5]}")
                 if total_uncompressed <= _MAX_EXTRACT:
@@ -272,7 +260,6 @@ def _inspect_archive(file_bytes: bytes, filename: str) -> dict:
     except Exception:
         pass
 
-    # --- Plain gzip / bz2 / xz ---
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext in ("gz", "bz2", "xz"):
         try:
@@ -295,10 +282,6 @@ def _inspect_archive(file_bytes: bytes, filename: str) -> dict:
 
 
 def analyze_file_content(file_bytes: bytes, filename: str) -> dict:
-    """
-    Layer 1 — rule-based content analysis.
-    Returns a dict with content_risk_score (0–1) and metadata.
-    """
     result: dict = {
         "content_risk_score": 0.0,
         "entropy": 0.0,

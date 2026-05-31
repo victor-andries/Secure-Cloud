@@ -87,7 +87,7 @@ export function useUpload() {
     } finally {
       setUploading(false);
     }
-  }, [file, password, confirmPassword, address]);
+  }, [file, password, confirmPassword, address, chainId]);
 
   const pwMatch   = confirmPassword.length > 0 && password === confirmPassword;
   const pwMismatch = confirmPassword.length > 0 && password !== confirmPassword;

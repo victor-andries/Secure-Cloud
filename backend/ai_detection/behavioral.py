@@ -11,10 +11,6 @@ logger = logging.getLogger("ai_detection.behavioral")
 
 
 def extract_features(event_data: dict) -> np.ndarray:
-    """
-    Extract 12 behavioural features from a runtime access event.
-    Feature order matches BEHAVIORAL_FEATURES.
-    """
     user_id    = event_data.get("user_id",    "unknown")
     timestamp  = float(event_data.get("timestamp", time.time()))
     file_size  = float(event_data.get("file_size",  0))
@@ -78,7 +74,6 @@ def extract_features(event_data: dict) -> np.ndarray:
         events_1h, events_24h, rapid_succession, prev_anomaly_count,
         ip_is_private, events_per_hour, high_volume,
     ], dtype=np.float32)
-
 
 def _persist_event(user_id: str, timestamp: float, ensemble_score: float,
                    level: str, action: str, threat_type: str | None = None) -> None:

@@ -10,9 +10,11 @@ from flask import Blueprint, request, jsonify
 logger = logging.getLogger("gateway.routes_auth")
 auth_bp = Blueprint("auth", __name__)
 
-_REDIS_URL  = f"redis://{os.getenv('REDIS_HOST', '')}:{os.getenv('REDIS_PORT', '')}"
-_NONCE_TTL  = 300   # 5 minutes
-_SESSION_TTL = 3600  # 1 hour
+_REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
+_REDIS_AUTH     = f":{_REDIS_PASSWORD}@" if _REDIS_PASSWORD else ""
+_REDIS_URL      = f"redis://{_REDIS_AUTH}{os.getenv('REDIS_HOST', '')}:{os.getenv('REDIS_PORT', '')}"
+_NONCE_TTL  = 300
+_SESSION_TTL = 3600
 _RATE_LIMIT  = 5    # max nonce requests per minute per address
 
 try:
@@ -25,7 +27,7 @@ except Exception:
 
 def _is_rate_limited(address: str) -> bool:
     if _rc is None:
-        return False
+        return True  # fail safe: block when Redis unavailable
     key = f"ratelimit:nonce:{address}"
     count = _rc.incr(key)
     if count == 1:
@@ -45,7 +47,6 @@ def _verify(address: str, signature: str, nonce: str) -> bool:
 
 @auth_bp.route("/auth/nonce", methods=["GET"])
 def get_nonce() -> tuple:
-    """Issue a one-time nonce for wallet signing."""
     address = (request.args.get("address") or "").lower().strip()
     if not address:
         return jsonify({"error": "address required"}), 400
@@ -59,7 +60,6 @@ def get_nonce() -> tuple:
 
 @auth_bp.route("/auth/session", methods=["POST"])
 def create_session() -> tuple:
-    """Exchange a signed nonce for a 1-hour session token."""
     if _rc is None:
         return jsonify({"error": "Auth service unavailable"}), 503
     body      = request.get_json() or {}

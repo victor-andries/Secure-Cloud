@@ -12,7 +12,6 @@ _RULES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "rule
 
 
 def load_rules() -> None:
-    """Compile YARA rulesets at startup. Logs error and continues on failure."""
     global _god_mode_rules, _signature_rules
 
     gm_path = os.path.join(_RULES_DIR, "god-mode-rules")
@@ -26,7 +25,6 @@ _EXTERNALS = {"filepath": "", "filename": "", "extension": "", "filetype": ""}
 
 
 def _compile_dir(path: str, label: str) -> yara.Rules | None:
-    """Compile all .yar files in path into one Rules object. Returns None on failure."""
     yar_files = (
         glob.glob(os.path.join(path, "**", "*.yar"),  recursive=True) +
         glob.glob(os.path.join(path, "**", "*.yara"), recursive=True)
@@ -45,17 +43,6 @@ def _compile_dir(path: str, label: str) -> yara.Rules | None:
 
 
 def scan(file_bytes: bytes, filename: str) -> dict:
-    """
-    Scan file_bytes against both YARA rulesets.
-
-    Returns:
-        {
-            "is_god_mode_match": bool,   # True → caller must force BLOCK
-            "yara_score": float,          # 1.0 god-mode, 0.90 signature-base, 0.0 clean
-            "matches": list[str],         # rule names that fired
-            "reasons": list[str],         # human-readable audit reasons
-        }
-    """
     result: dict = {
         "is_god_mode_match": False,
         "yara_score": 0.0,

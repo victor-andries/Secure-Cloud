@@ -86,22 +86,9 @@ def load_contracts() -> None:
         logger.warning("No chains loaded — all blockchain calls will fail")
 
 
-def _lookup_level(file_id: str, action: str, ip_address: str) -> str | None:
-    for entry in _level_log:
-        if (entry["file_id"] == file_id
-                and entry["action"] == action
-                and entry["ip_address"] == ip_address):
-            return entry["anomaly_level"]
-    return None
-
-
-def _lookup_reasons(file_id: str, action: str, ip_address: str) -> list[str]:
-    for entry in _level_log:
-        if (entry["file_id"] == file_id
-                and entry["action"] == action
-                and entry["ip_address"] == ip_address):
-            return entry.get("reasons", [])
-    return []
+def _build_level_log_map() -> dict:
+    """Return a dict keyed by (file_id, action, ip_address) for O(1) lookups."""
+    return {(e["file_id"], e["action"], e["ip_address"]): e for e in _level_log}
 
 
 def _build_and_submit(fn_call, chain: _Chain) -> str:
@@ -131,7 +118,7 @@ def _build_and_submit(fn_call, chain: _Chain) -> str:
                 "maxPriorityFeePerGas": priority,
             })
             signed  = chain.account.sign_transaction(tx)
-            tx_hash = chain.w3.eth.send_raw_transaction(signed.rawTransaction)
+            tx_hash = chain.w3.eth.send_raw_transaction(signed.raw_transaction)
         except Exception:
             chain.local_nonce = None
             raise

@@ -19,7 +19,6 @@ async function main() {
   const contractAddress = await contract.getAddress();
   console.log(`\nSecureDataManagement deployed to: ${contractAddress}`);
 
-  // ── Save ABI to backend/abi/ ──────────────────────────────────────────────
   const artifactPath = path.join(
     __dirname,
     "..",
@@ -53,12 +52,10 @@ async function main() {
 
     fs.mkdirSync(path.dirname(abiOutputPath), { recursive: true });
 
-    // Save network-specific file, e.g. SecureDataManagement-sepolia.json
     const networkOutputPath = abiOutputPath.replace(".json", `-${netName}.json`);
     fs.writeFileSync(networkOutputPath, JSON.stringify(abiOutput, null, 2));
     console.log(`\nABI saved to: ${networkOutputPath}`);
 
-    // Also overwrite the default file so existing setups keep working
     fs.writeFileSync(abiOutputPath, JSON.stringify(abiOutput, null, 2));
     console.log(`ABI saved to: ${abiOutputPath} (default)`);
   } else {
@@ -68,8 +65,6 @@ async function main() {
   console.log("\n─────────────────────────────────────────────────");
   console.log("Deployment complete!");
   console.log(`Contract address: ${contractAddress}`);
-  console.log("Add this to your .env files:");
-  console.log(`CONTRACT_ADDRESS=${contractAddress}`);
   console.log("─────────────────────────────────────────────────");
 }
 

@@ -14,10 +14,7 @@ with mock.patch('redis.Redis'):
 
 
 def _make_pe_with_section(section_name: bytes, data: bytes) -> bytes:
-    """Minimal PE with one section — enough for pefile to parse."""
-    # MZ header
     mz = b'MZ' + b'\x00' * 58 + struct.pack('<I', 64)
-    # PE header offset at 64
     pe_sig = b'PE\x00\x00'
     machine = struct.pack('<H', 0x014c)   # i386
     num_sections = struct.pack('<H', 1)
@@ -27,7 +24,6 @@ def _make_pe_with_section(section_name: bytes, data: bytes) -> bytes:
     opt_hdr_size = struct.pack('<H', 0)
     characteristics = struct.pack('<H', 0x0102)
     coff = pe_sig + machine + num_sections + timestamp + sym_table + num_syms + opt_hdr_size + characteristics
-    # Section header (40 bytes)
     name_padded = section_name[:8].ljust(8, b'\x00')
     vsize = struct.pack('<I', len(data))
     vaddr = struct.pack('<I', 0x1000)
@@ -65,10 +61,8 @@ def test_non_pe_file_returns_no_entropy_reasons():
 
 
 def test_malformed_pe_does_not_crash():
-    # Truncated PE — valid MZ header but no PE signature
     malformed = b'MZ' + b'\x00' * 30
     result = analyze_file_content(malformed, 'bad.exe')
-    # Must not raise — returns a result dict
     assert isinstance(result, dict)
 
 

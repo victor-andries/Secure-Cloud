@@ -18,6 +18,7 @@ const PAGE_SIZE = 25;
 export function useAudit() {
   const { address } = useAccount();
   const tableRef = useRef<HTMLDivElement>(null);
+  const pageRef = useRef(0);
   const [allLogs, setAllLogs] = useState<AccessLog[]>([]);
   const [totalCount, setTotalCount] = useState<number>(0);
   const [serverStats, setServerStats] = useState<AuditStats | null>(null);
@@ -42,6 +43,7 @@ export function useAudit() {
       if (res.stats)        setServerStats(res.stats);
       if (res.levelCounts)  setServerLevelCounts(res.levelCounts);
       if (res.actionCounts) setServerActionCounts(res.actionCounts);
+      pageRef.current = p;
       setPage(p);
     } catch (err) {
       console.error("Audit fetch error:", err);
@@ -64,6 +66,7 @@ export function useAudit() {
       if (res.stats)        setServerStats(res.stats);
       if (res.levelCounts)  setServerLevelCounts(res.levelCounts);
       if (res.actionCounts) setServerActionCounts(res.actionCounts);
+      pageRef.current = 0;
       setPage(0);
     } catch (err) {
       console.error("Audit fetch error:", err);
@@ -74,9 +77,9 @@ export function useAudit() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 15_000);
+    const interval = setInterval(() => fetchPage(pageRef.current), 15_000);
     return () => clearInterval(interval);
-  }, [fetchData]);
+  }, [fetchData, fetchPage]);
 
   const signIn = useCallback(async () => {
     if (!address) return;
@@ -84,18 +87,18 @@ export function useAudit() {
       await getOrCreateSession(address);
       setNoSession(false);
       fetchData();
-    } catch {
-      // user rejected or session failed — leave noSession true
+    } catch (err) {
+      console.error("Sign-in error:", err);
     }
   }, [address, fetchData]);
 
-  const handlePageChange = (newPage: number) => {
+  const handlePageChange = useCallback((newPage: number) => {
     if (newPage < 0) return;
-    if (newPage !== page) {
+    if (newPage !== pageRef.current) {
       fetchPage(newPage);
       tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  };
+  }, [fetchPage]);
 
   const filteredLogs = actionFilter === "all"
     ? allLogs

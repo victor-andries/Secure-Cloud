@@ -3,7 +3,7 @@ import logging
 import numpy as np
 import redis as _redis
 
-from .config import REDIS_HOST, REDIS_PORT, REDIS_FEAT_KEY, BUFFER_MAXLEN, MIN_FIT_SAMPLES
+from .config import REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_FEAT_KEY, BUFFER_MAXLEN, MIN_FIT_SAMPLES
 
 logger = logging.getLogger("ai_detection.redis_buffer")
 
@@ -13,7 +13,7 @@ redis_client = None
 def connect_redis() -> None:
     global redis_client
     try:
-        redis_client = _redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+        redis_client = _redis.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, decode_responses=True)
         redis_client.ping()
         logger.info(f"Redis connected at {REDIS_HOST}:{REDIS_PORT}")
     except Exception as exc:
@@ -22,7 +22,6 @@ def connect_redis() -> None:
 
 
 def _store_feature(features: np.ndarray) -> int:
-    """Append one feature vector to the Redis circular buffer. Returns current size."""
     if not redis_client:
         return 0
     try:
@@ -34,7 +33,6 @@ def _store_feature(features: np.ndarray) -> int:
 
 
 def _load_buffer() -> np.ndarray | None:
-    """Return feature matrix from Redis buffer, or None if too few samples."""
     if not redis_client:
         return None
     try:

@@ -67,7 +67,6 @@ export default function DashboardPage() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
-      {/* Page header */}
       <div className="mb-10">
         <div className="flex items-center gap-3 mb-3">
           <span className="section-label">System Overview</span>
@@ -84,17 +83,14 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
         <StatCard title="Total Files"    value={stats.totalFiles}    color="primary"   />
         <StatCard title="Blockchain TXs" value={stats.blockchainTxs} color="secondary" />
         <StatCard title="Storage Used"   value={stats.storageUsed}   color="success"   />
       </div>
 
-      {/* Main content */}
       <div className="grid grid-cols-1 gap-4">
 
-        {/* Service health */}
         <Card>
           <CardHeader className="pb-3 border-b border-border">
             <span className="section-label block mb-1">Infrastructure</span>
@@ -133,7 +129,6 @@ export default function DashboardPage() {
               );
             })}
 
-            {/* Overall system status */}
             <div className="px-4 py-3.5 bg-muted/40">
               <div className="flex items-center justify-between">
                 <span className="section-label">System Status</span>

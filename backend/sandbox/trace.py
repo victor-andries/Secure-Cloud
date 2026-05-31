@@ -31,12 +31,10 @@ _SUSPICIOUS_PATTERNS = [
 
 _FORK_BOMB_THRESHOLD   = 30
 _EXEC_CHAIN_THRESHOLD  = 8
-# A Unix virus opens many files for writing (to infect them); 3+ is suspicious
 _WRITE_ATTEMPT_THRESHOLD = 3
 
 
 def _analyze_trace(trace_text: str) -> dict:
-    """Parse strace output and return verdict, score, behaviors, syscall counts."""
     behaviors       = []
     syscall_counts  = {}
     malicious_hits  = []

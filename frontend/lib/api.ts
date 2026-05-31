@@ -24,8 +24,6 @@ export function setApiChainId(id: string | number): void {
   _chainId = String(id);
 }
 
-// ─── Interceptors ─────────────────────────────────────────────────────────────
-
 apiClient.interceptors.request.use((config) => {
   config.headers["X-Chain-ID"] = _chainId;
   return config;
@@ -46,8 +44,6 @@ apiClient.interceptors.response.use(
     return Promise.reject(new Error(message));
   }
 );
-
-// ─── File Operations ──────────────────────────────────────────────────────────
 
 export async function uploadFile(formData: FormData, address: string): Promise<UploadResponse> {
   const token = await getOrCreateSession(address);
@@ -100,8 +96,6 @@ export async function deleteFile(
   return response.data as { success: boolean };
 }
 
-// ─── Access Control ───────────────────────────────────────────────────────────
-
 export async function grantAccess(
   fileId: string,
   ownerAddress: string,
@@ -130,8 +124,6 @@ export async function revokeAccess(
   );
   return response.data as { success: boolean; txHash?: string };
 }
-
-// ─── Audit / Monitoring ───────────────────────────────────────────────────────
 
 function mapLog(l: Record<string, unknown>) {
   return {
@@ -209,8 +201,6 @@ export async function getAnomalyLogs(
     anomalies: raw.map(mapLog)
   };
 }
-
-// ─── Health ───────────────────────────────────────────────────────────────────
 
 export async function getHealth(): Promise<HealthResponse> {
   const response = await apiClient.get<HealthResponse>("/health");

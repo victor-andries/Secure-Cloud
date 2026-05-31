@@ -18,7 +18,7 @@ def grant_access(file_id: str) -> tuple:
             return jsonify({"error": f"Unauthorized: {err}"}), 401
         body = request.get_json() or {}
         body["file_id"] = file_id
-        chain_id = request.headers.get("X-Chain-ID", "11155111")
+        chain_id = request.headers.get("X-Chain-ID", "")
         resp = requests.post(
             f"{BLOCKCHAIN_URL}/access/grant",
             json=body,
@@ -40,7 +40,7 @@ def revoke_access(file_id: str) -> tuple:
             return jsonify({"error": f"Unauthorized: {err}"}), 401
         body = request.get_json() or {}
         body["file_id"] = file_id
-        chain_id = request.headers.get("X-Chain-ID", "11155111")
+        chain_id = request.headers.get("X-Chain-ID", "")
         resp = requests.post(
             f"{BLOCKCHAIN_URL}/access/revoke",
             json=body,
