@@ -7,16 +7,22 @@ A full-stack secure cloud storage platform built for a Master's dissertation. Co
 ## Architecture
 
 ```
-Browser (MetaMask)
-       │
-       ▼
-  API Gateway 
-  ┌──────┬──────────────┬──────────────┬──────────────┐
-  │      │              │              │              │
-Storage  Blockchain    AI Detection   Sandbox
-MinIO    Sepolia /     Layer 1+2+3    QEMU / Wine
-AES-GCM  Arbitrum      YARA + ECOD    Docker-in-Docker
-         Sepolia       Redis buffer
+  Browser (MetaMask)
+          │
+          ▼
+    Frontend (Next.js)
+          │
+          ▼
+     API Gateway  ──────── wallet auth · EIP-191 signed nonces (Redis)
+          │
+          ├── Storage Service  ──────── MinIO · AES-256-GCM chunked encryption
+          │
+          ├── Blockchain Service  ───── Eth Sepolia + Arbitrum Sepolia
+          │
+          ├── AI Detection  ─────────── Static analysis · YARA · PyOD ECOD
+          │                             (12-feature behavioural buffer in Redis)
+          │
+          └── Sandbox Service  ──────── QEMU user-mode · Wine · DOSBox
 ```
 
 The active blockchain network is determined by the user's MetaMask wallet. Switching networks in MetaMask instantly routes all blockchain calls to the corresponding deployed contract — no configuration changes needed.
