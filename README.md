@@ -317,5 +317,19 @@ The same contract is deployed independently on each supported network. Switching
 
 ---
 
-*Built as part of a Master's dissertation on decentralised secure cloud storage with AI-driven threat detection for ASE DICE department, IT&C Security Master
-.*
+---
+
+## Credits
+
+**YARA Rules — Florian Roth (Neo23x0)**
+Both YARA rulesets bundled in `backend/rules/` are authored by Florian Roth and used under the [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) licence (non-commercial use only):
+- [signature-base](https://github.com/Neo23x0/signature-base) — community malware signature library
+- [God Mode Rule](https://github.com/Neo23x0/god-mode-rules) — broad-spectrum threat detection rule (v0.8.1)
+
+**PyOD / ECOD**
+The Layer 3 behavioural anomaly detector uses the ECOD algorithm from the PyOD library:
+> Li, Z., Zhao, Y., Botta, N., Ionescu, C., & Hu, X. (2022). *ECOD: Unsupervised Outlier Detection Using Empirical Cumulative Distribution Functions.* IEEE Transactions on Knowledge and Data Engineering. https://doi.org/10.1109/TKDE.2022.3160206
+
+---
+
+*Built as part of a Master's dissertation on decentralised secure cloud storage with AI-driven threat detection for ASE DICE department, IT&C Security Master.*
