@@ -3,6 +3,7 @@ import { Syne, JetBrains_Mono, Outfit } from "next/font/google";
 import "./globals.css";
 import Providers from "@/app/providers";
 import Navbar from "@/components/Navbar";
+import DemoToggle from "@/components/DemoToggle";
 
 const syne = Syne({
   subsets: ["latin"],
@@ -37,6 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <main className="pt-16 min-h-screen">
             {children}
           </main>
+          <DemoToggle />
         </Providers>
       </body>
     </html>

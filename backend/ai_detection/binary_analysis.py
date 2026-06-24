@@ -70,47 +70,6 @@ def _analyze_elf_file(data: bytes) -> float:
     return min(score, 0.90)
 
 
-def _analyze_com_file(data: bytes, filename: str) -> float:
-    """Heuristic scoring for DOS COM file infectors."""
-    if not filename.lower().endswith('.com'):
-        return 0.0
-    if len(data) < 1:
-        return 0.0
-    if data[:2] == b'MZ':
-        return 0.0
-    if data[0] not in (0xEB, 0xE9):
-        return 0.0
-
-    score = 0.20
-
-    infector_score = 0.0
-    specific_indicators = 0
-
-    if b'\xCD\x21' in data:
-        infector_score += 0.25
-
-    idx = data.find(b'\xCD\x21')
-    if idx != -1:
-        window = data[max(0, idx - 10): idx + 10]
-        if b'\x4E' in window or b'\x4F' in window:
-            infector_score += 0.25
-            specific_indicators += 1
-
-    if b'*.com' in data or b'*.COM' in data or b'*.exe' in data or b'*.EXE' in data:
-        infector_score += 0.25
-        specific_indicators += 1
-
-    if b'\xB4\x3C' in data or b'\xB4\x3D' in data:
-        infector_score += 0.25
-        specific_indicators += 1
-
-    if len(data) < 2048 and specific_indicators > 0:
-        infector_score += 0.25
-
-    score += min(infector_score, 0.70)
-    return min(score, 0.90)
-
-
 def _analyze_pe_imports(data: bytes) -> float:
     score = 0.0
 
@@ -335,13 +294,6 @@ def analyze_file_content(file_bytes: bytes, filename: str) -> dict:
             score += elf_score
             result["threat_type"] = result["threat_type"] or "ELF_INFECTOR"
             logger.warning(f"ELF infector indicators in '{filename}': score={elf_score:.2f}")
-
-        com_score = _analyze_com_file(file_bytes, filename)
-        if com_score > 0.0:
-            score += com_score
-            if com_score >= 0.50:
-                result["threat_type"] = result["threat_type"] or "DOS_COM_INFECTOR"
-                logger.warning(f"DOS COM infector indicators in '{filename}': score={com_score:.2f}")
 
         if ext in _PE_EXTENSIONS:
             if file_bytes[:2] == b"MZ":

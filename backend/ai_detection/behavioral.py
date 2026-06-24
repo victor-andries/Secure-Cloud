@@ -91,15 +91,17 @@ def _persist_event(user_id: str, timestamp: float, ensemble_score: float,
         redis_buffer.redis_client.expire(history_key, 86400 * 7)
 
         if level != "NORMAL":
-            anomaly_key = f"user_anomalies:{user_id}"
-            redis_buffer.redis_client.incr(anomaly_key)
-            redis_buffer.redis_client.expire(anomaly_key, 86400 * 30)
             alert = json.dumps({
                 "user_id": user_id, "level": level,
                 "score": ensemble_score, "timestamp": timestamp,
                 "action": action, "threat_type": threat_type,
             })
             redis_buffer.redis_client.publish("anomaly_alerts", alert)
-            logger.warning(f"Anomaly: user={user_id} level={level} score={ensemble_score:.4f}")
+            if threat_type:
+                logger.warning(f"Threat blocked: user={user_id} level={level} "
+                               f"type={threat_type} score={ensemble_score:.4f}")
+            else:
+                logger.warning(f"Behavioral anomaly: user={user_id} level={level} "
+                               f"score={ensemble_score:.4f}")
     except Exception as exc:
         logger.warning(f"Redis persist failed: {exc}")

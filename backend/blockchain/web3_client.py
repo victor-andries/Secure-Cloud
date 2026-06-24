@@ -6,6 +6,7 @@ import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+import redis as _redis_pkg
 from web3 import Web3
 
 logger = logging.getLogger("blockchain.web3_client")
@@ -31,7 +32,42 @@ _CHAIN_CONFIG = {
 _receipt_semaphore = threading.Semaphore(5)
 _receipt_pool      = ThreadPoolExecutor(max_workers=10)
 
-_level_log: deque = deque(maxlen=2000)
+_level_log: deque = deque(maxlen=2000)   # in-memory fallback if Redis is down
+
+_AUDIT_KEY    = "audit:level_log"
+_AUDIT_MAXLEN = 2000
+try:
+    _audit_rc = _redis_pkg.Redis(
+        host=os.getenv("REDIS_HOST", ""),
+        port=int(os.getenv("REDIS_PORT", "6379") or 6379),
+        password=os.getenv("REDIS_PASSWORD") or None,
+        decode_responses=True,
+    )
+    _audit_rc.ping()
+    logger.info("Audit log: Redis-backed (persistent across restarts)")
+except Exception as exc:
+    _audit_rc = None
+    logger.warning(f"Audit log: Redis unavailable ({exc}) — using in-memory deque (lost on restart)")
+
+
+def audit_append(entry: dict) -> None:
+    if _audit_rc is not None:
+        try:
+            _audit_rc.lpush(_AUDIT_KEY, json.dumps(entry))
+            _audit_rc.ltrim(_AUDIT_KEY, 0, _AUDIT_MAXLEN - 1)
+            return
+        except Exception as exc:
+            logger.warning(f"Audit Redis append failed, using deque: {exc}")
+    _level_log.appendleft(entry)
+
+
+def audit_entries() -> list:
+    if _audit_rc is not None:
+        try:
+            return [json.loads(x) for x in _audit_rc.lrange(_AUDIT_KEY, 0, -1)]
+        except Exception as exc:
+            logger.warning(f"Audit Redis read failed, using deque: {exc}")
+    return list(_level_log)
 
 
 @dataclass
@@ -88,7 +124,7 @@ def load_contracts() -> None:
 
 def _build_level_log_map() -> dict:
     """Return a dict keyed by (file_id, action, ip_address) for O(1) lookups."""
-    return {(e["file_id"], e["action"], e["ip_address"]): e for e in _level_log}
+    return {(e["file_id"], e["action"], e["ip_address"]): e for e in audit_entries()}
 
 
 def _build_and_submit(fn_call, chain: _Chain) -> str:
@@ -118,7 +154,8 @@ def _build_and_submit(fn_call, chain: _Chain) -> str:
                 "maxPriorityFeePerGas": priority,
             })
             signed  = chain.account.sign_transaction(tx)
-            tx_hash = chain.w3.eth.send_raw_transaction(signed.raw_transaction)
+            raw_tx  = getattr(signed, "raw_transaction", None) or signed.rawTransaction
+            tx_hash = chain.w3.eth.send_raw_transaction(raw_tx)
         except Exception:
             chain.local_nonce = None
             raise

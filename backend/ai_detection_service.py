@@ -5,7 +5,6 @@ from ai_detection import app, load_models, connect_redis
 from ai_detection import (
     analyze_file_content,
     _analyze_elf_file,
-    _analyze_com_file,
     _analyze_pe_imports,
     _analyze_macho,
     _inspect_archive,

@@ -45,6 +45,18 @@ apiClient.interceptors.response.use(
   }
 );
 
+// DEV/DEMO ONLY: swap the ECOD behavioural baseline (proxied gateway -> AI).
+export async function reseedDemo(
+  profile: "normal" | "night",
+  address?: string
+): Promise<{ profile: string; buffer_size: number; fitted: boolean }> {
+  const resp = await apiClient.post("/admin/reseed", {
+    profile,
+    ...(address ? { user_address: address } : {}),
+  });
+  return resp.data;
+}
+
 export async function uploadFile(formData: FormData, address: string): Promise<UploadResponse> {
   const token = await getOrCreateSession(address);
   const response = await apiClient.post("/files/upload", formData, {
@@ -135,6 +147,7 @@ function mapLog(l: Record<string, unknown>) {
     success:      (l.success ?? true) as boolean,
     anomalyFlag:  (l.anomaly_flag ?? l.anomalyFlag ?? false) as boolean,
     anomalyLevel: (l.anomaly_level ?? l.anomalyLevel ?? undefined) as import("@/types").AnomalyLevel | undefined,
+    reasons:      (l.reasons ?? []) as string[],
     pending:      (l.pending ?? false) as boolean,
   };
 }

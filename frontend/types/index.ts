@@ -32,6 +32,7 @@ export interface AccessLog {
   success: boolean;
   anomalyFlag: boolean;
   anomalyLevel?: AnomalyLevel;
+  reasons?: string[];
   pending?: boolean;
 }
 

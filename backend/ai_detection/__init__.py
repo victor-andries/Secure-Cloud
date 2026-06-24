@@ -4,7 +4,6 @@ from .redis_buffer import connect_redis
 from .binary_analysis import (
     analyze_file_content,
     _analyze_elf_file,
-    _analyze_com_file,
     _analyze_pe_imports,
     _analyze_macho,
     _inspect_archive,
@@ -12,6 +11,6 @@ from .binary_analysis import (
 
 __all__ = [
     "app", "load_models", "connect_redis",
-    "analyze_file_content", "_analyze_elf_file", "_analyze_com_file",
+    "analyze_file_content", "_analyze_elf_file",
     "_analyze_pe_imports", "_analyze_macho", "_inspect_archive",
 ]

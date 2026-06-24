@@ -126,12 +126,13 @@ export default function AuditPage() {
                 <th className="text-left px-6 py-3">IP Address</th>
                 <th className="text-left px-6 py-3">Result</th>
                 <th className="text-left px-6 py-3">Threat Level</th>
+                <th className="text-left px-6 py-3">Reason</th>
               </tr>
             </thead>
             <tbody>
               {filteredLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-gray-600">
+                  <td colSpan={7} className="px-6 py-12 text-center text-gray-600">
                     {loading ? "Loading..." : "No events recorded"}
                   </td>
                 </tr>
@@ -167,6 +168,17 @@ export default function AuditPage() {
                       </td>
                       <td className="px-6 py-3">
                         <AnomalyBadge level={level} />
+                      </td>
+                      <td className="px-6 py-3 text-gray-400 text-xs">
+                        {log.reasons && log.reasons.length > 0 ? (
+                          <ul className="space-y-0.5 max-w-[420px]">
+                            {log.reasons.map((r, i) => (
+                              <li key={i} className="break-words leading-snug">{r}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <span className="text-gray-600">—</span>
+                        )}
                       </td>
                     </tr>
                   );

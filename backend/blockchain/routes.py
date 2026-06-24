@@ -6,7 +6,7 @@ from flask_cors import CORS
 from web3 import Web3
 
 from . import web3_client
-from .web3_client import _level_log, _build_level_log_map, get_chain, send_transaction, send_transaction_nowait
+from .web3_client import audit_append, audit_entries, _build_level_log_map, get_chain, send_transaction, send_transaction_nowait
 
 logging.basicConfig(
     level=logging.INFO,
@@ -203,7 +203,7 @@ def log_access() -> tuple:
                 return jsonify({"error": f"Missing field: {field}"}), 400
 
         anomaly_level = body.get("anomaly_level", "HIGH" if body["anomaly_flag"] else "NORMAL")
-        _level_log.appendleft({
+        audit_append({
             "file_id":       body["file_id"],
             "action":        body["action"],
             "ip_address":    body["ip_address"],
@@ -281,13 +281,14 @@ def get_all_logs() -> tuple:
             if len(chunk) < PAGE_LIMIT:
                 break
             page_num += 1
-        logger.info(f"[audit/all] total_onchain={len(all_raw)} level_log_size={len(_level_log)}")
+        _audit = audit_entries()
+        logger.info(f"[audit/all] total_onchain={len(all_raw)} level_log_size={len(_audit)}")
         all_raw = list(reversed(all_raw))
         pending_logs = []
         if page == 0:
             now = int(time.time())
             onchain_keys = {(log[1], log[2], log[3]) for log in all_raw}
-            for entry in _level_log:
+            for entry in _audit:
                 age = now - entry.get("logged_at", 0)
                 key = (entry["file_id"], entry["action"], entry["ip_address"])
                 logger.info(f"[audit/all] _level_log entry: file={entry['file_id'][:8]} action={entry['action']} age={age}s in_onchain={key in onchain_keys}")

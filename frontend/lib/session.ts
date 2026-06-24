@@ -12,6 +12,7 @@ interface Session {
 }
 
 let _mem: Session | null = null;
+const _inflight = new Map<string, Promise<string>>();
 
 function load(address: string): Session | null {
   if (
@@ -45,10 +46,22 @@ export function getExistingSession(address: string): string | null {
   return load(address)?.token ?? null;
 }
 
-export async function getOrCreateSession(address: string): Promise<string> {
+export function getOrCreateSession(address: string): Promise<string> {
   const cached = load(address);
-  if (cached) return cached.token;
+  if (cached) return Promise.resolve(cached.token);
 
+  const key = address.toLowerCase();
+  const existing = _inflight.get(key);
+  if (existing) return existing;
+
+  const pending = createSession(address).finally(() => {
+    _inflight.delete(key);
+  });
+  _inflight.set(key, pending);
+  return pending;
+}
+
+async function createSession(address: string): Promise<string> {
   const { user_address, signature } = await signAuth(address);
 
   const resp = await fetch(`${BASE_URL}/auth/session`, {

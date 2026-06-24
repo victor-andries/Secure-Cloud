@@ -6,6 +6,8 @@ import io
 import hashlib
 import base64
 import logging
+from concurrent.futures import ThreadPoolExecutor
+import urllib3
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from minio import Minio
@@ -32,11 +34,19 @@ CHUNK_SIZE = 10 * 1024 * 1024  # 10MB
 
 _MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
 
+_minio_http = urllib3.PoolManager(
+    num_pools=10,
+    maxsize=50,
+    retries=urllib3.Retry(total=5, backoff_factor=0.2, status_forcelist=[500, 502, 503, 504]),
+    timeout=urllib3.Timeout(connect=10, read=300),
+)
+
 minio_client = Minio(
     MINIO_ENDPOINT,
     access_key=MINIO_ACCESS_KEY,
     secret_key=MINIO_SECRET_KEY,
-    secure=_MINIO_SECURE
+    secure=_MINIO_SECURE,
+    http_client=_minio_http
 )
 logger.info(f"MinIO connection: {'HTTPS' if _MINIO_SECURE else 'HTTP'} ({MINIO_ENDPOINT})")
 
@@ -107,8 +117,7 @@ def upload_file() -> tuple:
         if not chunks:
             chunks = [b""]
 
-        chunk_metadata = []
-        for idx, chunk_data in enumerate(chunks):
+        def process_chunk(idx: int, chunk_data: bytes) -> dict:
             chunk_id = f"{file_id}/chunk_{idx:04d}"
             chunk_hash = hashlib.sha256(chunk_data).hexdigest()
             encrypted = encrypt_chunk(chunk_data, password)
@@ -121,13 +130,20 @@ def upload_file() -> tuple:
                 content_type="application/octet-stream"
             )
 
-            chunk_metadata.append({
+            logger.info(f"Uploaded chunk {idx + 1}/{len(chunks)}: {chunk_id}")
+            return {
                 "chunk_id": chunk_id,
                 "chunk_hash": chunk_hash,
                 "chunk_size": len(chunk_data),
                 "chunk_location": f"minio://{MINIO_BUCKET}/{chunk_id}"
-            })
-            logger.info(f"Uploaded chunk {idx + 1}/{len(chunks)}: {chunk_id}")
+            }
+
+        max_workers = min(8, len(chunks))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            chunk_metadata = list(pool.map(
+                lambda args: process_chunk(*args),
+                enumerate(chunks)
+            ))
 
         response = {
             "file_id": file_id,
@@ -170,29 +186,31 @@ def download_file(file_id: str) -> tuple:
             return jsonify({"error": f"num_chunks must be between 0 and {_MAX_CHUNKS}"}), 400
 
         logger.info(f"Downloading file_id: {file_id}, num_chunks: {num_chunks}")
-        file_data = bytearray()
 
-        for idx in range(num_chunks):
+        def fetch_and_decrypt(idx: int) -> bytes:
             chunk_id = f"{file_id}/chunk_{idx:04d}"
+            resp = minio_client.get_object(MINIO_BUCKET, chunk_id)
             try:
-                response = minio_client.get_object(MINIO_BUCKET, chunk_id)
-                encrypted_data = response.read()
-                response.close()
-                response.release_conn()
-            except S3Error as exc:
-                logger.error(f"Failed to retrieve chunk {chunk_id}: {exc}")
-                return jsonify({"error": f"Chunk not found: {chunk_id}"}), 404
+                encrypted_data = resp.read()
+            finally:
+                resp.close()
+                resp.release_conn()
+            return decrypt_chunk(encrypted_data, password)
+        max_workers = max(1, min(8, num_chunks))
+        try:
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                decrypted_chunks = list(pool.map(fetch_and_decrypt, range(num_chunks)))
+        except S3Error as exc:
+            logger.error(f"Failed to retrieve a chunk for {file_id}: {exc}")
+            return jsonify({"error": "Chunk not found"}), 404
+        except Exception as exc:
+            logger.error(f"Decryption failed for {file_id}: {exc}")
+            return jsonify({"error": "Decryption failed — wrong password or corrupted data"}), 400
 
-            try:
-                decrypted = decrypt_chunk(encrypted_data, password)
-                file_data.extend(decrypted)
-            except Exception as exc:
-                logger.error(f"Decryption failed for chunk {chunk_id}: {exc}")
-                return jsonify({"error": "Decryption failed — wrong password or corrupted data"}), 400
-
-        encoded = base64.b64encode(bytes(file_data)).decode("utf-8")
-        logger.info(f"Download complete for file_id: {file_id}, total bytes: {len(file_data)}")
-        return jsonify({"file_id": file_id, "data": encoded, "size": len(file_data)}), 200
+        raw = b"".join(decrypted_chunks)
+        encoded = base64.b64encode(raw).decode("utf-8")
+        logger.info(f"Download complete for file_id: {file_id}, total bytes: {len(raw)}")
+        return jsonify({"file_id": file_id, "data": encoded, "size": len(raw)}), 200
 
     except Exception as exc:
         logger.error(f"Download error: {exc}", exc_info=True)

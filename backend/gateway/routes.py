@@ -9,6 +9,7 @@ from .routes_access import access_bp
 from .routes_audit  import audit_bp
 from .routes_health import health_bp
 from .routes_auth   import auth_bp
+from .routes_demo   import demo_bp
 from .config        import ALLOWED_ORIGINS
 
 logging.basicConfig(
@@ -25,6 +26,7 @@ app.register_blueprint(access_bp)
 app.register_blueprint(audit_bp)
 app.register_blueprint(health_bp)
 app.register_blueprint(auth_bp)
+app.register_blueprint(demo_bp)
 
 
 @app.after_request

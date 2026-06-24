@@ -156,6 +156,23 @@ def _run_in_dos_sandbox(file_bytes: bytes, filename: str) -> dict:
         tar_buf.seek(0)
         container.put_archive("/dosbox/c/target_dir", tar_buf)
 
+        def _decoy_sizes() -> dict:
+            _, raw = container.exec_run(
+                ["sh", "-c", "wc -c /dosbox/c/target_dir/decoy_*.com 2>/dev/null"],
+                demux=False
+            )
+            sizes: dict = {}
+            for line in (raw or b'').decode().splitlines():
+                parts = line.strip().split()
+                if len(parts) == 2 and parts[1].startswith('/'):
+                    try:
+                        sizes[os.path.basename(parts[1])] = int(parts[0])
+                    except ValueError:
+                        pass
+            return sizes
+
+        baseline_sizes = _decoy_sizes()
+
         container.exec_run(
             ["sh", "-c",
              "SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy "
@@ -182,28 +199,16 @@ def _run_in_dos_sandbox(file_bytes: bytes, filename: str) -> dict:
             verdict = "SUSPICIOUS"
             score   = 0.75
 
-        _, sizes_raw = container.exec_run(
-            ["sh", "-c", "wc -c /dosbox/c/target_dir/decoy_*.com 2>/dev/null"],
-            demux=False
-        )
-        sizes_text = (sizes_raw or b'').decode()
-        for line in sizes_text.splitlines():
-            parts = line.strip().split()
-            if len(parts) == 2:
-                try:
-                    size = int(parts[0])
-                    path = parts[1]
-                    if not path.startswith('/'):
-                        continue
-                    if size > 2:
-                        behaviors.append(
-                            f"File infector: {os.path.basename(path)} modified "
-                            f"({size} bytes, was 2)"
-                        )
-                        verdict = "MALICIOUS"
-                        score   = 0.95
-                except ValueError:
-                    pass
+        final_sizes = _decoy_sizes()
+        for name, size in final_sizes.items():
+            base = baseline_sizes.get(name)
+            if base is not None and size != base:
+                behaviors.append(
+                    f"File infector: {name} modified "
+                    f"({size} bytes, was {base})"
+                )
+                verdict = "MALICIOUS"
+                score   = 0.95
 
         runtime_ms = int((time.time() - start_ms) * 1000)
         logger.info(

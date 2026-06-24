@@ -15,7 +15,7 @@ _REDIS_AUTH     = f":{_REDIS_PASSWORD}@" if _REDIS_PASSWORD else ""
 _REDIS_URL      = f"redis://{_REDIS_AUTH}{os.getenv('REDIS_HOST', '')}:{os.getenv('REDIS_PORT', '')}"
 _NONCE_TTL  = 300
 _SESSION_TTL = 3600
-_RATE_LIMIT  = 5    # max nonce requests per minute per address
+_RATE_LIMIT  = 10
 
 try:
     _rc = _redis_pkg.from_url(_REDIS_URL, decode_responses=True)
@@ -50,6 +50,8 @@ def get_nonce() -> tuple:
     address = (request.args.get("address") or "").lower().strip()
     if not address:
         return jsonify({"error": "address required"}), 400
+    if _rc is None:
+        return jsonify({"error": "Auth service unavailable"}), 503
     if _is_rate_limited(address):
         return jsonify({"error": "Too many requests — try again shortly"}), 429
     nonce = f"Sign to authenticate with SecureCloud: {uuid.uuid4()}"

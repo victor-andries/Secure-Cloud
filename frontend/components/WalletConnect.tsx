@@ -64,33 +64,36 @@ export default function WalletConnect() {
                 );
               }
 
+              const hasIcon = chain.hasIcon && chain.iconUrl;
               return (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 sm:gap-2">
                   <button
                     onClick={openChainModal}
                     type="button"
                     className="
-                      flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium
+                      flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-2
+                      rounded-lg sm:rounded-xl text-xs font-medium whitespace-nowrap
                       bg-white/5 hover:bg-white/10
                       border border-white/10
                       text-gray-300 transition-all duration-200
                     "
                   >
-                    {chain.hasIcon && chain.iconUrl && (
+                    {hasIcon && (
                       <img
                         alt={chain.name ?? "Chain icon"}
                         src={chain.iconUrl}
                         className="w-4 h-4 rounded-full"
                       />
                     )}
-                    {chain.name}
+                    <span className={hasIcon ? "hidden sm:inline" : ""}>{chain.name}</span>
                   </button>
 
                   <button
                     onClick={openAccountModal}
                     type="button"
                     className="
-                      flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold
+                      flex items-center gap-1.5 sm:gap-2 px-2.5 py-1.5 sm:px-4 sm:py-2
+                      rounded-lg sm:rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap
                       bg-primary-600/20 hover:bg-primary-600/30
                       border border-primary-500/30
                       text-primary-300 transition-all duration-200

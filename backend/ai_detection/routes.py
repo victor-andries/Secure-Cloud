@@ -11,7 +11,7 @@ from .binary_analysis import analyze_file_content
 from .behavioral import extract_features, _persist_event
 from .detector import run_pyod_detector, classify_score, get_ecod_reasons
 from .config import BEHAVIORAL_FEATURES, MIN_FIT_SAMPLES, REDIS_FEAT_KEY, N_FEATURES
-from . import detector, redis_buffer, yara_scanner
+from . import detector, redis_buffer, yara_scanner, demo_seed
 
 logging.basicConfig(
     level=logging.INFO,
@@ -100,7 +100,6 @@ def scan_file() -> tuple:
             "ARCHIVE_CONTAINS_EXECUTABLES", "MALICIOUS_CODE_IN_ARCHIVE",
             "MALWARE_IN_ARCHIVE", "SUSPICIOUS_SCRIPT_IN_ARCHIVE",
             "ELF_INFECTOR",
-            "DOS_COM_INFECTOR",
             "MALICIOUS_PE_IMPORTS",
             "PACKED_PE",
             "MACHO_DYLIB_HIJACKING",
@@ -160,6 +159,7 @@ def detect_anomaly() -> tuple:
         features       = extract_features(body)
         pyod_score     = run_pyod_detector(features)
         ensemble_score = pyod_score
+        reasons        = get_ecod_reasons(features)
         logger.info(
             f"Detect — ECOD:{pyod_score:.4f} | Ensemble:{ensemble_score:.4f}"
         )
@@ -176,6 +176,7 @@ def detect_anomaly() -> tuple:
             "level":              level,
             "recommended_action": action_map[level],
             "is_anomalous":       level != "NORMAL",
+            "reasons":            reasons,
             "model_scores": {
                 "ecod": round(pyod_score, 4),
             },
@@ -227,6 +228,44 @@ def get_stats(user_id: str) -> tuple:
 
     except Exception as exc:
         logger.error(f"Stats error: {exc}", exc_info=True)
+        return jsonify({"error": str(exc)}), 500
+
+
+DEMO_MODE = os.getenv("DEMO_MODE", "").lower() in ("1", "true", "yes")
+
+
+@app.route("/admin/reseed", methods=["POST"])
+def admin_reseed() -> tuple:
+    if not DEMO_MODE:
+        return jsonify({"error": "Not found"}), 404
+    try:
+        body = request.get_json(silent=True) or {}
+        profile = body.get("profile", "")
+        if profile not in demo_seed.PROFILES:
+            return jsonify({"error": f"profile must be one of {list(demo_seed.PROFILES)}"}), 400
+
+        n = int(body.get("n", demo_seed.DEFAULT_N))
+        buf_size = demo_seed.load_into_buffer(profile, n)
+
+        user_address = body.get("user_address")
+        if user_address:
+            demo_seed.reset_user(user_address)
+
+        detector.load_models()
+        fitted = detector.pyod_detector is not None
+        threshold = float(detector.pyod_detector.threshold_) if fitted else None
+        logger.info(f"[DEMO] reseeded profile={profile} samples={buf_size} fitted={fitted}")
+
+        return jsonify({
+            "profile":        profile,
+            "buffer_size":    buf_size,
+            "fitted":         fitted,
+            "ecod_threshold": round(threshold, 4) if threshold is not None else None,
+            "reset_user":     user_address or None,
+        }), 200
+
+    except Exception as exc:
+        logger.error(f"Reseed error: {exc}", exc_info=True)
         return jsonify({"error": str(exc)}), 500
 
 
