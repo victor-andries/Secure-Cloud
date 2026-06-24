@@ -10,7 +10,7 @@ load_dotenv(find_dotenv())
 
 from eth_account import Account
 
-BLOCKCHAIN_URL = os.getenv("BLOCKCHAIN_URL", "http://localhost:5002")
+BLOCKCHAIN_URL = os.getenv("BLOCKCHAIN_URL", "")
 _private_key   = os.getenv("PRIVATE_KEY", "")
 OWNER_ADDRESS  = Account.from_key(_private_key).address if _private_key else ""
 

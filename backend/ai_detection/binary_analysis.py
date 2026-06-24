@@ -42,7 +42,6 @@ def _pe_section_entropy(file_bytes: bytes) -> list[str]:
 
 
 def _analyze_elf_file(data: bytes) -> float:
-    """Heuristic scoring for ELF executables based on imported symbol strings."""
     if data[:4] != b'\x7fELF':
         return 0.0
 

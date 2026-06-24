@@ -77,7 +77,6 @@ def extract_features(event_data: dict) -> np.ndarray:
 
 def _persist_event(user_id: str, timestamp: float, ensemble_score: float,
                    level: str, action: str, threat_type: str | None = None) -> None:
-    """Write event to Redis and publish alert if anomalous."""
     if not redis_buffer.redis_client:
         return
     try:

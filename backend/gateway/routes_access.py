@@ -11,7 +11,6 @@ access_bp = Blueprint("access", __name__)
 
 @access_bp.route("/files/<file_id>/access/grant", methods=["POST"])
 def grant_access(file_id: str) -> tuple:
-    """Proxy grant access request to blockchain service."""
     try:
         ok, err, _ = require_session(request.headers.get("X-Session-Token", ""))
         if not ok:
@@ -33,7 +32,6 @@ def grant_access(file_id: str) -> tuple:
 
 @access_bp.route("/files/<file_id>/access/revoke", methods=["POST"])
 def revoke_access(file_id: str) -> tuple:
-    """Proxy revoke access request to blockchain service."""
     try:
         ok, err, _ = require_session(request.headers.get("X-Session-Token", ""))
         if not ok:

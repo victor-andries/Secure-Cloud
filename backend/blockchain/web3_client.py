@@ -123,7 +123,6 @@ def load_contracts() -> None:
 
 
 def _build_level_log_map() -> dict:
-    """Return a dict keyed by (file_id, action, ip_address) for O(1) lookups."""
     return {(e["file_id"], e["action"], e["ip_address"]): e for e in audit_entries()}
 
 

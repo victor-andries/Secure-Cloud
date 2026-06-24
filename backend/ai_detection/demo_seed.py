@@ -15,21 +15,21 @@ DEFAULT_N = 300
 
 def _shared_nontime(rng) -> list:
     is_upload = 1.0 if rng.random() < 0.5 else 0.0
-    if is_upload:                                 # uploads span all file sizes
+    if is_upload:
         file_size_mb = float(min(10 ** rng.uniform(np.log10(0.05), np.log10(1000.0)), 1000.0))
-    else:                                         # downloads carry size 0
+    else:
         file_size_mb = 0.0
 
-    if rng.random() < 0.45:                                    # idle
+    if rng.random() < 0.45:
         events_1h = 0.0
         events_24h = 0.0
         rapid_succession = 0.0
-    else:                                                      # active / bursty
-        events_1h = float(rng.integers(1, 21))                 # 1-20 (covers 10-15 bursts)
+    else:
+        events_1h = float(rng.integers(1, 21))
         events_24h = float(events_1h + min(int(rng.exponential(1.0)), 5))
         rapid_succession = 1.0 if rng.random() < 0.55 else 0.0
-    prev_anomaly_count = float(rng.integers(0, 3))             # 0-2, clean-ish
-    ip_is_private      = 1.0                                   # localhost / Docker
+    prev_anomaly_count = float(rng.integers(0, 3))
+    ip_is_private      = 1.0
     events_per_hour    = events_24h / 24.0
     high_volume        = 1.0 if events_1h > 10 else 0.0
     return [file_size_mb, is_upload, events_1h, events_24h,
@@ -79,7 +79,6 @@ def load_into_buffer(profile: str, n: int = DEFAULT_N, redis_client=None) -> int
 
 
 def reset_user(user_address: str, redis_client=None) -> None:
-    """Clear a user's accumulated anomaly counter and event history."""
     rc = redis_client or redis_buffer.redis_client
     if rc is None or not user_address:
         return
