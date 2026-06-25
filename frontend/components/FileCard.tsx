@@ -49,8 +49,8 @@ export default function FileCard({ file, onDownload, onShare, onDelete, deleting
         {file.txHash && (
           <div className="col-span-2">
             <p className="text-gray-600 uppercase tracking-wide font-medium mb-0.5">TX Hash</p>
-            <p className="text-primary-400 font-mono truncate" title={file.txHash}>
-              {truncateAddress(file.txHash, 10, 8)}
+            <p className="text-primary-400 font-mono break-all" title={file.txHash}>
+              {file.txHash}
             </p>
           </div>
         )}
